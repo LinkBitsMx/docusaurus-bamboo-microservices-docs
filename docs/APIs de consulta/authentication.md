@@ -1,26 +1,26 @@
-﻿---
+---
 sidebar_position: 2
-title: Autenticacion
+title: Authentication
 ---
 
-# Autenticacion
+# Authentication
 
-Todas las APIs requieren una API Key. Esta clave identifica a la integracion que esta consultando la informacion.
+All APIs require an API Key. This key identifies the integration querying the information.
 
-:::warning Importante
-La API Key debe mantenerse privada. No la pongas en aplicaciones web publicas, repositorios, logs, screenshots o URLs.
+:::warning Important
+The API Key must be kept private. Do not include it in public web applications, repositories, logs, screenshots, or URLs.
 :::
 
-## Header requerido
+## Required header
 
-Incluye la API Key en todas las peticiones:
+Include the API Key in every request:
 
 ```http
 X-API-Key: YOUR_API_KEY_HERE
 Accept: application/json
 ```
 
-## Ejemplo con curl
+## curl example
 
 ```bash
 curl -X GET "https://bamboonetapi.ddns.net/api/pedidos/2605-00005" \
@@ -28,10 +28,10 @@ curl -X GET "https://bamboonetapi.ddns.net/api/pedidos/2605-00005" \
   -H "Accept: application/json"
 ```
 
-## Ejemplo con JavaScript
+## JavaScript example
 
 ```javascript
-async function consultarPedido(folio) {
+async function queryOrder(folio) {
   const response = await fetch(
     `https://bamboonetapi.ddns.net/api/pedidos/${encodeURIComponent(folio)}`,
     {
@@ -44,21 +44,21 @@ async function consultarPedido(folio) {
   );
 
   if (!response.ok) {
-    throw new Error(`Error HTTP ${response.status}`);
+    throw new Error(`HTTP error ${response.status}`);
   }
 
   return response.json();
 }
 ```
 
-## Respuestas de autenticacion
+## Authentication responses
 
-| Codigo | Significado | Que revisar |
+| Code | Meaning | What to check |
 | --- | --- | --- |
-| `200` | Peticion autorizada | La API Key es valida |
-| `401` | No autorizado | Falta `X-API-Key` o la clave es incorrecta |
+| `200` | Authorized request | The API Key is valid |
+| `401` | Unauthorized | Missing `X-API-Key` or invalid key |
 
-## Recomendaciones
+## Recommendations
 
-- Guarda la API Key en variables de entorno o en un gestor de secretos.
-- Consume estas APIs desde un backend o servicio seguro.
+- Store the API Key in environment variables or a secrets manager.
+- Consume these APIs from a backend or secure service.

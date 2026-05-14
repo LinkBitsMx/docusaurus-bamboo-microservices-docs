@@ -1,20 +1,20 @@
-﻿---
+---
 sidebar_position: 4
-title: Ejemplos de integracion
+title: Integration examples
 ---
 
-# Ejemplos de integracion
+# Integration examples
 
-## Consultar envio desde JavaScript
+## Query shipment from JavaScript
 
 ```javascript
-async function consultarEnvio(folio) {
+async function queryShipment(folio) {
   const response = await fetch(
     `https://bamboonetapi.ddns.net/api/envios/${encodeURIComponent(folio)}`,
     {
       method: 'GET',
       headers: {
-        'X-API-Key': 'TU_API_KEY',
+        'X-API-Key': 'YOUR_API_KEY_HERE',
         'Accept': 'application/json',
       },
     }
@@ -22,19 +22,19 @@ async function consultarEnvio(folio) {
 
   if (response.status === 404) {
     return {
-      encontrado: false,
-      mensaje: 'No encontramos informacion para ese folio.',
+      found: false,
+      message: 'No information was found for that folio.',
     };
   }
 
   if (!response.ok) {
-    throw new Error(`Error HTTP ${response.status}`);
+    throw new Error(`HTTP error ${response.status}`);
   }
 
   const data = await response.json();
 
   return {
-    encontrado: true,
+    found: true,
     pedidoId: data.pedidoId,
     paqueteria: data.paqueteria,
     guia: data.guia,
@@ -43,34 +43,34 @@ async function consultarEnvio(folio) {
 }
 ```
 
-## Mensaje sugerido para el usuario final
+## Suggested message for the end user
 
-Cuando la API devuelve guia:
-
-```text
-Tu pedido ya cuenta con guia.
-Paqueteria: PAQUETEXPRESS
-Guia: MEX14PP0067946003003
-Rastreo: https://www.paquetexpress.com.mx/rastreo/MEX14PP0067946003003
-```
-
-Cuando la API devuelve paqueteria sin guia:
+When the API returns a tracking number:
 
 ```text
-Tu pedido ya tiene paqueteria asignada: PAQUETEXPRESS.
-La guia aun no esta disponible. Puedes volver a consultar mas tarde.
+Your order already has a tracking number.
+Carrier: PAQUETEXPRESS
+Tracking number: MEX14PP0067946003003
+Tracking URL: https://www.paquetexpress.com.mx/rastreo/MEX14PP0067946003003
 ```
 
-Cuando no existe informacion:
+When the API returns a carrier without a tracking number:
 
 ```text
-No encontramos informacion para ese folio. Revisa que este escrito correctamente.
+Your order already has an assigned carrier: PAQUETEXPRESS.
+The tracking number is not available yet. Please check again later.
 ```
 
-## Manejo recomendado de errores
+When no information exists:
 
-| Codigo | Manejo sugerido |
+```text
+No information was found for that folio. Please verify that it is written correctly.
+```
+
+## Recommended error handling
+
+| Code | Suggested handling |
 | --- | --- |
-| `401` | Revisar API Key. No mostrar detalles tecnicos al usuario final. |
-| `404` | Indicar que el folio no fue encontrado. |
-| `500` | Pedir al usuario intentar mas tarde o levantar reporte interno. |
+| `401` | Check the API Key. Do not show technical details to the end user. |
+| `404` | Indicate that the folio was not found. |
+| `500` | Ask the user to try again later or create an internal report. |

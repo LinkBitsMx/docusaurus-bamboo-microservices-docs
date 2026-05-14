@@ -1,24 +1,24 @@
-﻿---
+---
 sidebar_position: 1
-title: Introduccion
-slug: /apis-consulta
+title: Introduction
+slug: /query-apis
 ---
 
-# APIs de consulta
+# Query APIs
 
-Esta seccion documenta las APIs de consulta disponibles para integraciones externas.
+This section documents the query APIs available for external integrations.
 
-Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema interno. Estan pensadas para escenarios donde un bot, una integracion o un canal externo necesita responder preguntas comunes sobre pedidos, envios, precios y garantias.
+These APIs let external systems query BambooERP information without accessing the internal system. They are intended for scenarios where a bot, integration, or external channel needs to answer common questions about orders, shipments, prices, and warranties.
 
-## Que puedes consultar
+## What you can query
 
-| API | Que resuelve |
+| API | What it solves |
 | --- | --- |
-| Consulta de pedido | Informacion general de un pedido por folio |
-| Estatus de pedido | Avance actual del pedido en el proceso operativo |
-| Consulta de envio | Paqueteria, guia y liga de rastreo cuando existan |
-| Precios de producto | Precio por codigo interno o SKU, separado por sucursal |
-| Consulta de garantia | Productos y estatus asociados a un folio de garantia |
+| Order query | General order information by folio |
+| Order status | Current progress of the order in the operational process |
+| Shipment query | Carrier, tracking number, and tracking URL when available |
+| Product prices | Price by internal code or SKU, separated by branch |
+| Warranty query | Products and status associated with a warranty ticket folio |
 
 ## Base URL
 
@@ -26,20 +26,20 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 https://bamboonetapi.ddns.net/api/
 ```
 
-## Formato general
+## General format
 
-- Todas las peticiones usan `GET`.
-- Todas las respuestas se entregan en JSON.
-- Todas las peticiones requieren el header `X-API-Key`.
-- Si un dato aun no existe en BambooERP, la API puede regresar valores como `Sin guia`, `No asignada` o `null`.
+- All requests use `GET`.
+- All responses are returned as JSON.
+- All requests require the `X-API-Key` header.
+- If a value is not available yet in BambooERP, the API may return values such as `Sin guia`, `No asignada`, or `null`.
 
-## Flujo recomendado
+## Recommended flow
 
-1. Solicita tu API Key al equipo de integracion.
-2. Configura la API Key en tu backend o servicio privado.
-3. Prueba primero con folios reales de validacion.
-4. Maneja correctamente respuestas `401`, `404` y `500`.
-5. No expongas la API Key en frontend publico, repositorios o capturas.
+1. Request your API Key from the integration team.
+2. Configure the API Key in your backend or private service.
+3. Test first with real validation folios.
+4. Handle `401`, `404`, and `500` responses correctly.
+5. Do not expose the API Key in public frontend code, repositories, or screenshots.
 
 ## Endpoints
 

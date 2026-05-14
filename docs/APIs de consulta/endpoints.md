@@ -1,23 +1,23 @@
-﻿---
+---
 sidebar_position: 3
 title: Endpoints
 ---
 
 # Endpoints
 
-## 1. Consulta de pedido
+## 1. Order query
 
-Obtiene la informacion general de un pedido.
+Gets general order information.
 
 ```http
 GET https://bamboonetapi.ddns.net/api/pedidos/{folio}
 ```
 
-| Parametro | Tipo | Requerido | Descripcion |
+| Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `folio` | string | Si | Folio del pedido. Ejemplo: `2605-00005` |
+| `folio` | string | Yes | Order folio. Example: `2605-00005` |
 
-### Respuesta
+### Response
 
 ```json
 {
@@ -30,17 +30,17 @@ GET https://bamboonetapi.ddns.net/api/pedidos/{folio}
 }
 ```
 
-## 2. Estatus de pedido
+## 2. Order status
 
-Obtiene el avance actual del pedido.
+Gets the current progress of the order.
 
 ```http
 GET https://bamboonetapi.ddns.net/api/pedidos/{folio}/estatus
 ```
 
-| Parametro | Tipo | Requerido | Descripcion |
+| Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `folio` | string | Si | Folio del pedido. Ejemplo: `2605-00005` |
+| `folio` | string | Yes | Order folio. Example: `2605-00005` |
 
 ```json
 {
@@ -50,23 +50,23 @@ GET https://bamboonetapi.ddns.net/api/pedidos/{folio}/estatus
 }
 ```
 
-## 3. Consulta de envio
+## 3. Shipment query
 
-Obtiene la paqueteria, guia y URL de rastreo asociadas a un pedido.
+Gets the carrier, tracking number, and tracking URL associated with an order.
 
 ```http
 GET https://bamboonetapi.ddns.net/api/envios/{folio}
 ```
 
-| Parametro | Tipo | Requerido | Descripcion |
+| Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `folio` | string | Si | Folio del pedido. Ejemplo: `2505-00063` |
+| `folio` | string | Yes | Order folio. Example: `2505-00063` |
 
 :::note
-Debido al proceso operativo, la paqueteria puede estar disponible antes de que exista una guia. En ese caso la API regresa la paqueteria, `guia: "Sin guia"` y `trackingUrl: null`.
+Due to the operational process, the carrier may be available before a tracking number exists. In that case, the API returns the carrier, `guia: "Sin guia"`, and `trackingUrl: null`.
 :::
 
-### Respuesta con guia
+### Response with tracking number
 
 ```json
 {
@@ -79,7 +79,7 @@ Debido al proceso operativo, la paqueteria puede estar disponible antes de que e
 }
 ```
 
-### Respuesta sin guia
+### Response without tracking number
 
 ```json
 {
@@ -92,17 +92,17 @@ Debido al proceso operativo, la paqueteria puede estar disponible antes de que e
 }
 ```
 
-## 4. Precios de producto
+## 4. Product prices
 
-Obtiene precios por codigo interno o SKU.
+Gets prices by internal code or SKU.
 
 ```http
 GET https://bamboonetapi.ddns.net/api/precios/productos/{identificador}
 ```
 
-| Parametro | Tipo | Requerido | Descripcion |
+| Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `identificador` | string | Si | Codigo interno o SKU. Ejemplos: `000001`, `FDA07` |
+| `identificador` | string | Yes | Internal code or SKU. Examples: `000001`, `FDA07` |
 
 ```json
 {
@@ -129,17 +129,17 @@ GET https://bamboonetapi.ddns.net/api/precios/productos/{identificador}
 }
 ```
 
-## 5. Consulta de garantia
+## 5. Warranty query
 
-Obtiene los productos asociados a un folio de garantia.
+Gets the products associated with a warranty ticket folio.
 
 ```http
 GET https://bamboonetapi.ddns.net/api/garantias/{folioTicket}
 ```
 
-| Parametro | Tipo | Requerido | Descripcion |
+| Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `folioTicket` | string | Si | Folio del ticket de garantia |
+| `folioTicket` | string | Yes | Warranty ticket folio |
 
 ```json
 {

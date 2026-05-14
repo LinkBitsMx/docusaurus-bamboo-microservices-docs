@@ -1,42 +1,42 @@
 ---
 sidebar_position: 5
-title: Errores y preguntas frecuentes
+title: Errors and FAQs
 ---
 
-# Errores y preguntas frecuentes
+# Errors and FAQs
 
-## Codigos de respuesta
+## Response codes
 
-| Codigo | Significado | Respuesta recomendada |
+| Code | Meaning | Recommended response |
 | --- | --- | --- |
-| `200` | Consulta exitosa | Procesar la respuesta JSON |
-| `401` | API Key ausente o invalida | Revisar credenciales |
-| `404` | Recurso no encontrado | Validar folio, SKU o ticket |
-| `500` | Error interno | Reportar a soporte con datos de la peticion |
+| `200` | Successful query | Process the JSON response |
+| `401` | Missing or invalid API Key | Check credentials |
+| `404` | Resource not found | Validate the folio, SKU, or ticket |
+| `500` | Internal error | Report with request details |
 
-## Buenas practicas
+## Best practices
 
-- No compartas la API Key en canales publicos.
-- No guardes la API Key en repositorios.
-- No envies la API Key en la URL.
-- Usa HTTPS en ambientes productivos.
-- Registra internamente el folio consultado, endpoint, fecha, hora y codigo HTTP.
+- Do not share the API Key in public channels.
+- Do not store the API Key in repositories.
+- Do not send the API Key in the URL.
+- Use HTTPS in production environments.
+- Log the queried folio, endpoint, date, time, and HTTP code internally.
 
-## Preguntas frecuentes
+## FAQs
 
-### Donde obtengo la API Key?
+### Where do I get the API Key?
 
-La proporciona el equipo responsable de la integracion.
+It is provided by the team responsible for the integration.
 
-### La API Key se puede usar desde frontend?
+### Can the API Key be used from frontend code?
 
-No se recomienda. Debe usarse desde un backend, servicio privado o servidor controlado por el integrador.
+It is not recommended. It should be used from a backend, private service, or server controlled by the integrator.
 
-### Por que un envio puede tener paqueteria pero no guia?
+### Why can a shipment have a carrier but no tracking number?
 
-Porque la paqueteria puede asignarse desde el inicio del pedido, mientras que la guia se genera mas adelante en el proceso operativo.
+Because the carrier can be assigned at the beginning of the order, while the tracking number is generated later in the operational process.
 
-En ese caso la API puede responder:
+In that case, the API may respond:
 
 ```json
 {

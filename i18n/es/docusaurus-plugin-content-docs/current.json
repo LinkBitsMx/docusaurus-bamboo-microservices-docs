@@ -11,8 +11,8 @@
     "message": "Microservicio de Ventas E-commerce",
     "description": "The label for category 'E-commerce Sales Microservice' in sidebar 'tutorialSidebar'"
   },
-  "sidebar.tutorialSidebar.category.APIs de consulta": {
+  "sidebar.tutorialSidebar.category.Query APIs": {
     "message": "APIs de consulta",
-    "description": "The label for category 'APIs de consulta' in sidebar 'tutorialSidebar'"
+    "description": "The label for category 'Query APIs' in sidebar 'tutorialSidebar'"
   }
 }
