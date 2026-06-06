@@ -31,33 +31,56 @@ async function consultarEnvio(folio) {
     throw new Error(`Error HTTP ${response.status}`);
   }
 
-  const data = await response.json();
+  const pedidos = await response.json();
 
   return {
     encontrado: true,
-    pedidoId: data.pedidoId,
-    paqueteria: data.paqueteria,
-    guia: data.guia,
-    trackingUrl: data.trackingUrl,
+    pedidos: pedidos.map((pedido) => ({
+      pedidoId: pedido.pedidoId,
+      paqueteria: pedido.paqueteria,
+      estatusEnvio: pedido.estatusEnvio,
+      fechaPedido: pedido.fechaPedido,
+      guias: pedido.guias,
+    })),
   };
 }
 ```
 
 ## Mensaje sugerido para el usuario final
 
-Cuando la API devuelve guia:
+Cuando el folio contiene varios pedidos internos:
+
+```text
+Informacion de envio encontrada para el folio 2509-03200:
+
+Pedido 25086
+Paqueteria: FLETERA
+Guia: Sin guia
+
+Pedido 25087
+Paqueteria: PAQUETEXPRESS
+Guias:
+- MEX01PP3469501006006
+- MEX01PP3469501006005
+- MEX01PP3469501006004
+- MEX01PP3469501006003
+- MEX01PP3469501006002
+- MEX01PP3469501006001
+```
+
+Cuando uno de los pedidos tiene guia:
 
 ```text
 Tu pedido ya cuenta con guia.
 Paqueteria: PAQUETEXPRESS
-Guia: MEX14PP0067946003003
-Rastreo: https://www.paquetexpress.com.mx/rastreo/MEX14PP0067946003003
+Guia: MEX01PP3469501006006
+Rastreo: https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006006
 ```
 
-Cuando la API devuelve paqueteria sin guia:
+Cuando uno de los pedidos tiene paqueteria sin guia:
 
 ```text
-Tu pedido ya tiene paqueteria asignada: PAQUETEXPRESS.
+Tu pedido ya tiene paqueteria asignada: FLETERA.
 La guia aun no esta disponible. Puedes volver a consultar mas tarde.
 ```
 

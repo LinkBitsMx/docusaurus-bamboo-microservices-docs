@@ -36,12 +36,25 @@ No se recomienda. Debe usarse desde un backend, servicio privado o servidor cont
 
 Porque la paqueteria puede asignarse desde el inicio del pedido, mientras que la guia se genera mas adelante en el proceso operativo.
 
-En ese caso la API puede responder:
+En ese caso el pedido sigue apareciendo en el arreglo `guias` con `guia: "Sin guia"` y `trackingUrl: null`:
 
 ```json
 {
-  "paqueteria": "PAQUETEXPRESS",
-  "guia": "Sin guia",
-  "trackingUrl": null
+  "pedidoId": "25086",
+  "paqueteria": "FLETERA",
+  "guias": [
+    {
+      "guia": "Sin guia",
+      "trackingUrl": null
+    }
+  ],
+  "estatusEnvio": "activo",
+  "fechaPedido": "2025-09-18T12:35:39.553"
 }
 ```
+
+### Por que `/api/envios/{folio}` regresa un arreglo?
+
+Un mismo folio puede dividirse en varios pedidos internos. La API regresa un objeto por cada `pedidoId` para que las integraciones puedan mostrar cada pedido interno por separado.
+
+Si un pedido interno tiene varias guias, esas guias se agrupan dentro del mismo arreglo `guias` en lugar de repetir el pedido.

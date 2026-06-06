@@ -52,7 +52,7 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/pedidos/{folio}/estatus
 
 ## 3. Shipment query
 
-Gets the carrier, tracking number, and tracking URL associated with an order.
+Gets the shipment information associated with an order folio. A single folio can be split into more than one internal order, so the response is an array grouped by `pedidoId`.
 
 ```http
 GET http://pfconexionlinkbits.ddns.net:50780/api/envios/{folio}
@@ -60,36 +60,63 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/envios/{folio}
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `folio` | string | Yes | Order folio. Example: `2505-00063` |
+| `folio` | string | Yes | Order folio. Example: `2509-03200` |
 
 :::note
-Due to the operational process, the carrier may be available before a tracking number exists. In that case, the API returns the carrier, `guia: "Sin guia"`, and `trackingUrl: null`.
+Each item in the response represents one internal order (`pedidoId`). The `guias` array contains every tracking number and URL associated with that order.
+
+Due to the operational process, a carrier may be available before a tracking number exists. In that case, the order still appears in the response with `guia: "Sin guia"` and `trackingUrl: null`.
 :::
 
-### Response with tracking number
+### Response
 
 ```json
-{
-  "pedidoId": "78701",
-  "paqueteria": "PAQUETEXPRESS",
-  "guia": "MEX14PP0067946003003",
-  "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX14PP0067946003003",
-  "estatusEnvio": "activo",
-  "fechaPedido": "2026-04-03T10:51:46.06"
-}
-```
-
-### Response without tracking number
-
-```json
-{
-  "pedidoId": "83",
-  "paqueteria": "PAQUETEXPRESS",
-  "guia": "Sin guia",
-  "trackingUrl": null,
-  "estatusEnvio": "activo",
-  "fechaPedido": "2025-05-05T11:14:27.363"
-}
+[
+  {
+    "pedidoId": "25086",
+    "paqueteria": "FLETERA",
+    "guias": [
+      {
+        "guia": "Sin guia",
+        "trackingUrl": null
+      }
+    ],
+    "estatusEnvio": "activo",
+    "fechaPedido": "2025-09-18T12:35:39.553"
+  },
+  {
+    "pedidoId": "25087",
+    "paqueteria": "PAQUETEXPRESS",
+    "guias": [
+      {
+        "guia": "MEX01PP3469501006006",
+        "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006006"
+      },
+      {
+        "guia": "MEX01PP3469501006005",
+        "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006005"
+      },
+      {
+        "guia": "MEX01PP3469501006004",
+        "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006004"
+      },
+      {
+        "guia": "MEX01PP3469501006003",
+        "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006003"
+      },
+      {
+        "guia": "MEX01PP3469501006002",
+        "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006002"
+      },
+      {
+        "guia": "MEX01PP3469501006001",
+        "trackingUrl": "https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006001"
+      }
+    ],
+    "estatusEnvio": "activo",
+    "fechaPedido": "2025-09-18T12:35:39.557"
+  }
+]
 ```
 
 ## 4. Product prices

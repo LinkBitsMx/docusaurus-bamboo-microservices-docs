@@ -16,7 +16,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | --- | --- |
 | Consulta de pedido | Informacion general de un pedido por folio |
 | Estatus de pedido | Avance actual del pedido en el proceso operativo |
-| Consulta de envio | Paqueteria, guia y liga de rastreo cuando existan |
+| Consulta de envio | Pedidos internos del folio, con paqueteria y guias agrupadas |
 | Precios de producto | Precio por codigo interno o SKU, separado por sucursal |
 | Consulta de garantia | Productos y estatus asociados a un folio de garantia |
 

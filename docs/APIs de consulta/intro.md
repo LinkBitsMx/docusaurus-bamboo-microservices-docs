@@ -16,7 +16,7 @@ These APIs let external systems query BambooERP information without accessing th
 | --- | --- |
 | Order query | General order information by folio |
 | Order status | Current progress of the order in the operational process |
-| Shipment query | Carrier, tracking number, and tracking URL when available |
+| Shipment query | Internal orders for a folio, with carrier and grouped tracking guides |
 | Product prices | Price by internal code or SKU, separated by branch |
 | Warranty query | Products and status associated with a warranty ticket folio |
 

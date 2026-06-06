@@ -36,12 +36,25 @@ It is not recommended. It should be used from a backend, private service, or ser
 
 Because the carrier can be assigned at the beginning of the order, while the tracking number is generated later in the operational process.
 
-In that case, the API may respond:
+In that case, the order still appears in the `guias` array with `guia: "Sin guia"` and `trackingUrl: null`:
 
 ```json
 {
-  "paqueteria": "PAQUETEXPRESS",
-  "guia": "Sin guia",
-  "trackingUrl": null
+  "pedidoId": "25086",
+  "paqueteria": "FLETERA",
+  "guias": [
+    {
+      "guia": "Sin guia",
+      "trackingUrl": null
+    }
+  ],
+  "estatusEnvio": "activo",
+  "fechaPedido": "2025-09-18T12:35:39.553"
 }
 ```
+
+### Why does `/api/envios/{folio}` return an array?
+
+A single folio can be split into multiple internal orders. The API returns one object per `pedidoId` so integrations can show each internal order separately.
+
+If one internal order has multiple guides, those guides are grouped inside the same `guias` array instead of repeating the order.

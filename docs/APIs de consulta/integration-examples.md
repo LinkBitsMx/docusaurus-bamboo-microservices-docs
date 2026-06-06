@@ -31,33 +31,56 @@ async function queryShipment(folio) {
     throw new Error(`HTTP error ${response.status}`);
   }
 
-  const data = await response.json();
+  const pedidos = await response.json();
 
   return {
     found: true,
-    pedidoId: data.pedidoId,
-    paqueteria: data.paqueteria,
-    guia: data.guia,
-    trackingUrl: data.trackingUrl,
+    pedidos: pedidos.map((pedido) => ({
+      pedidoId: pedido.pedidoId,
+      paqueteria: pedido.paqueteria,
+      estatusEnvio: pedido.estatusEnvio,
+      fechaPedido: pedido.fechaPedido,
+      guias: pedido.guias,
+    })),
   };
 }
 ```
 
 ## Suggested message for the end user
 
-When the API returns a tracking number:
+When the folio contains multiple internal orders:
+
+```text
+Shipment information found for folio 2509-03200:
+
+Order 25086
+Carrier: FLETERA
+Tracking number: Sin guia
+
+Order 25087
+Carrier: PAQUETEXPRESS
+Tracking numbers:
+- MEX01PP3469501006006
+- MEX01PP3469501006005
+- MEX01PP3469501006004
+- MEX01PP3469501006003
+- MEX01PP3469501006002
+- MEX01PP3469501006001
+```
+
+When one of the orders has tracking URLs:
 
 ```text
 Your order already has a tracking number.
 Carrier: PAQUETEXPRESS
-Tracking number: MEX14PP0067946003003
-Tracking URL: https://www.paquetexpress.com.mx/rastreo/MEX14PP0067946003003
+Tracking number: MEX01PP3469501006006
+Tracking URL: https://www.paquetexpress.com.mx/rastreo/MEX01PP3469501006006
 ```
 
-When the API returns a carrier without a tracking number:
+When one of the orders has a carrier without a tracking number:
 
 ```text
-Your order already has an assigned carrier: PAQUETEXPRESS.
+Your order already has an assigned carrier: FLETERA.
 The tracking number is not available yet. Please check again later.
 ```
 
