@@ -181,3 +181,123 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/garantias/{folioTicket}
   ]
 }
 ```
+
+## 6. Pre-orders
+
+Lets an external customer system submit a **pre-order** (an unconfirmed quotation request). It is stored with status `PENDIENTE` so a salesperson can later take it and turn it into a quotation. This resource also exposes read endpoints to list and review incoming pre-orders.
+
+### 6.1 Create pre-order
+
+Creates a pre-order in status `PENDIENTE`. The server computes each line `amount` (`quantity * unitPrice`), the order `total`, and a readable `folio` with the format `{customerCode}-{id:D5}` (for example `C00123-00012`).
+
+```http
+POST http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `customerCode` | string | Yes | Customer code. Max 200 chars. |
+| `email` | string | No | Contact email. Max 200 chars, must be a valid email. |
+| `phone` | string | No | Contact phone. Max 50 chars. |
+| `notes` | string | No | Free-text notes for the salesperson. |
+| `items` | array | Yes | At least one item is required. |
+| `items[].productCode` | string | Yes | Product code or SKU. Max 50 chars. |
+| `items[].quantity` | integer | Yes | Must be greater than zero. |
+| `items[].unitPrice` | decimal | Yes | Cannot be negative. |
+
+Request body:
+
+```json
+{
+  "customerCode": "C00123",
+  "email": "cliente@example.com",
+  "phone": "8112345678",
+  "notes": "Entregar por la tarde",
+  "items": [
+    { "productCode": "FDA07", "quantity": 2, "unitPrice": 560.00 },
+    { "productCode": "000001", "quantity": 1, "unitPrice": 450.00 }
+  ]
+}
+```
+
+Response — `201 Created`. Returns the pre-order as it was persisted, including the generated `id`, `folio`, computed totals, and `createdAt`.
+
+```json
+{
+  "id": 12,
+  "folio": "C00123-00012",
+  "customerCode": "C00123",
+  "email": "cliente@example.com",
+  "phone": "8112345678",
+  "notes": "Entregar por la tarde",
+  "status": "PENDIENTE",
+  "isApproved": false,
+  "total": 1570.00,
+  "createdAt": "2026-07-01T10:15:30.123",
+  "items": [
+    { "id": 45, "productCode": "FDA07", "quantity": 2, "unitPrice": 560.00, "amount": 1120.00 },
+    { "id": 46, "productCode": "000001", "quantity": 1, "unitPrice": 450.00, "amount": 450.00 }
+  ]
+}
+```
+
+### 6.2 List pre-orders
+
+Lists pre-orders, optionally filtered by status. Results are ordered by `createdAt` descending.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes?status={status}
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | string | No | Filter by status (case-insensitive). Example: `PENDIENTE`. If omitted, returns all pre-orders. |
+
+### Response
+
+```json
+[
+  {
+    "id": 12,
+    "folio": "C00123-00012",
+    "customerCode": "C00123",
+    "status": "PENDIENTE",
+    "total": 1570.00,
+    "totalItems": 2,
+    "createdAt": "2026-07-01T10:15:30.123"
+  }
+]
+```
+
+### 6.3 Get pre-order by id
+
+Gets the full detail of a pre-order, including its items. Returns `404` if no pre-order exists with the given `id`.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes/{id}
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | integer | Yes | Pre-order id. |
+
+### Response
+
+```json
+{
+  "id": 12,
+  "folio": "C00123-00012",
+  "customerCode": "C00123",
+  "email": "cliente@example.com",
+  "phone": "8112345678",
+  "notes": "Entregar por la tarde",
+  "status": "PENDIENTE",
+  "isApproved": false,
+  "total": 1570.00,
+  "createdAt": "2026-07-01T10:15:30.123",
+  "items": [
+    { "id": 45, "productCode": "FDA07", "quantity": 2, "unitPrice": 560.00, "amount": 1120.00 },
+    { "id": 46, "productCode": "000001", "quantity": 1, "unitPrice": 450.00, "amount": 450.00 }
+  ]
+}
+```
