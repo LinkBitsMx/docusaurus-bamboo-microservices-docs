@@ -19,6 +19,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Consulta de envio | Pedidos internos del folio, con paqueteria y guias agrupadas |
 | Precios de producto | Precio por codigo interno o SKU, separado por sucursal |
 | Consulta de garantia | Productos y estatus asociados a un folio de garantia |
+| Pre-ordenes | Enviar solicitudes de cotizacion sin confirmar y revisarlas con detalle de stock por almacen |
 
 ## Base URL
 
@@ -28,7 +29,7 @@ https://bamboonetapi.ddns.net/api/
 
 ## Formato general
 
-- Todas las peticiones usan `GET`.
+- La mayoria de las peticiones usan `GET`; crear una pre-orden usa `POST`.
 - Todas las respuestas se entregan en JSON.
 - Todas las peticiones requieren el header `X-API-Key`.
 - Si un dato aun no existe en BambooERP, la API puede regresar valores como `Sin guia`, `No asignada` o `null`.
@@ -44,9 +45,13 @@ https://bamboonetapi.ddns.net/api/
 ## Endpoints
 
 ```text
-GET /pedidos/{folio}
-GET /pedidos/{folio}/estatus
-GET /envios/{folio}
-GET /precios/productos/{identificador}
-GET /garantias/{folioTicket}
+GET  /pedidos/{folio}
+GET  /pedidos/{folio}/estatus
+GET  /envios/{folio}
+GET  /precios/productos/{identificador}
+GET  /garantias/{folioTicket}
+POST /PreOrdenes
+GET  /PreOrdenes
+GET  /PreOrdenes/{id}
+GET  /preorders/detail
 ```

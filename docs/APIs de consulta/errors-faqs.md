@@ -58,3 +58,16 @@ In that case, the order still appears in the `guias` array with `guia: "Sin guia
 A single folio can be split into multiple internal orders. The API returns one object per `pedidoId` so integrations can show each internal order separately.
 
 If one internal order has multiple guides, those guides are grouped inside the same `guias` array instead of repeating the order.
+
+### What does the stock breakdown in a pre-order item mean?
+
+Each pre-order item is enriched with the deliverable stock (`deliverable_qty`) of every **sales warehouse** (`sales_enabled = 1`). From that, the API computes how much of the requested quantity can be fulfilled (`cantidadCubierta` / `coveredQuantity`), how much is missing (`cantidadAgotada` / `shortageQuantity`), a suggested per-warehouse allocation, and a fulfillment status:
+
+- `CUBIERTA` / `COVERED` — a single warehouse can cover the whole quantity.
+- `DISTRIBUIR` / `DISTRIBUTE` — there is enough total stock, but it is spread across several warehouses.
+- `AGOTADO_PARCIAL` / `PARTIALLY_COVERED` — there is some stock, but not enough for the full quantity.
+- `SIN_STOCK` / `OUT_OF_STOCK` — no sales warehouse holds any stock.
+
+### Why is `/api/preorders/detail` in English while the other pre-order endpoints are in Spanish?
+
+That endpoint (route, JSON field names, and status values) is kept in English because it is reviewed by the China team. It returns the same information as `GET /api/PreOrdenes/{id}`, only translated. The other endpoints keep their original Spanish fields for backward compatibility.

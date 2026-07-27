@@ -19,6 +19,7 @@ These APIs let external systems query BambooERP information without accessing th
 | Shipment query | Internal orders for a folio, with carrier and grouped tracking guides |
 | Product prices | Price by internal code or SKU, separated by branch |
 | Warranty query | Products and status associated with a warranty ticket folio |
+| Pre-orders | Submit unconfirmed quotation requests and review them with per-warehouse stock detail |
 
 ## Base URL
 
@@ -28,7 +29,7 @@ http://pfconexionlinkbits.ddns.net:50780/api/
 
 ## General format
 
-- All requests use `GET`.
+- Most requests use `GET`; creating a pre-order uses `POST`.
 - All responses are returned as JSON.
 - All requests require the `X-API-Key` header.
 - If a value is not available yet in BambooERP, the API may return values such as `Sin guia`, `No asignada`, or `null`.
@@ -44,9 +45,13 @@ http://pfconexionlinkbits.ddns.net:50780/api/
 ## Endpoints
 
 ```text
-GET /pedidos/{folio}
-GET /pedidos/{folio}/estatus
-GET /envios/{folio}
-GET /precios/productos/{identificador}
-GET /garantias/{folioTicket}
+GET  /pedidos/{folio}
+GET  /pedidos/{folio}/estatus
+GET  /envios/{folio}
+GET  /precios/productos/{identificador}
+GET  /garantias/{folioTicket}
+POST /PreOrdenes
+GET  /PreOrdenes
+GET  /PreOrdenes/{id}
+GET  /preorders/detail
 ```

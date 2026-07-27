@@ -273,6 +273,8 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes?status={status}
 
 Gets the full detail of a pre-order, including its items. Returns `404` if no pre-order exists with the given `id`.
 
+Besides the base fields, **each item includes the stock breakdown per sales warehouse** (warehouses with `sales_enabled = 1`), using the deliverable stock (`deliverable_qty`). This mirrors the "Almacén a surtir (stock)" view of the quotation screen.
+
 ```http
 GET http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes/{id}
 ```
@@ -280,6 +282,20 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes/{id}
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | integer | Yes | Pre-order id. |
+
+Per-item stock fields (Spanish, same language as the rest of this endpoint):
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `stockDisponible` | integer | Total deliverable stock summed across all sales warehouses. |
+| `cantidadCubierta` | integer | How much of the requested quantity can be fulfilled with the available stock. |
+| `cantidadAgotada` | integer | How much cannot be fulfilled (shortage / out of stock). |
+| `estadoSurtido` | string | `CUBIERTA` (a single warehouse covers it all), `DISTRIBUIR` (enough stock but spread across warehouses), `AGOTADO_PARCIAL` (stock is short) or `SIN_STOCK` (no warehouse has stock). |
+| `almacenes[]` | array | Only warehouses that hold stock, ordered from most to least. |
+| `almacenes[].almacenId` | integer | Warehouse id. |
+| `almacenes[].almacen` | string | Warehouse name. |
+| `almacenes[].stockDisponible` | integer | Deliverable units in this warehouse. |
+| `almacenes[].cantidadSurtir` | integer | Units suggested to fulfill from this warehouse (greedy allocation). |
 
 ### Response
 
@@ -296,8 +312,101 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/PreOrdenes/{id}
   "total": 1570.00,
   "createdAt": "2026-07-01T10:15:30.123",
   "items": [
-    { "id": 45, "productCode": "FDA07", "quantity": 2, "unitPrice": 560.00, "amount": 1120.00 },
-    { "id": 46, "productCode": "000001", "quantity": 1, "unitPrice": 450.00, "amount": 450.00 }
+    {
+      "id": 45,
+      "productCode": "FDA07",
+      "quantity": 2,
+      "unitPrice": 560.00,
+      "amount": 1120.00,
+      "stockDisponible": 1236,
+      "cantidadCubierta": 2,
+      "cantidadAgotada": 0,
+      "estadoSurtido": "CUBIERTA",
+      "almacenes": [
+        { "almacenId": 1540424, "almacen": "Almacen San Martin", "stockDisponible": 970, "cantidadSurtir": 2 },
+        { "almacenId": 1540415, "almacen": "Almacen Apodaca",     "stockDisponible": 266, "cantidadSurtir": 0 }
+      ]
+    },
+    {
+      "id": 46,
+      "productCode": "000001",
+      "quantity": 1,
+      "unitPrice": 450.00,
+      "amount": 450.00,
+      "stockDisponible": 0,
+      "cantidadCubierta": 0,
+      "cantidadAgotada": 1,
+      "estadoSurtido": "SIN_STOCK",
+      "almacenes": []
+    }
   ]
 }
+```
+
+### 6.4 List pre-orders with detail (English endpoint)
+
+Lists **every** pre-order (optionally filtered by status) with the same enriched per-item detail as `6.3` (stock per warehouse, covered/shortage quantity, fulfillment status and suggested allocation). The stock for all items is resolved in a single query.
+
+:::info Language
+This endpoint is fully **in English** — route, JSON field names, and status values — because it is reviewed by the China team. The other pre-order endpoints stay in Spanish. It is served on an absolute route (`/api/preorders/detail`), outside the `/api/PreOrdenes` prefix.
+:::
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/preorders/detail?status={status}
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | string | No | Filter by status in **English**: `PENDING`, `TAKEN`, `CONVERTED`, `CANCELLED`. If omitted, returns all pre-orders. |
+
+Per-item fields (English equivalents of the Spanish fields in `6.3`):
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `availableStock` | integer | Total deliverable stock across all sales warehouses. |
+| `coveredQuantity` | integer | How much of the requested quantity can be fulfilled. |
+| `shortageQuantity` | integer | How much cannot be fulfilled (shortage). |
+| `fulfillmentStatus` | string | `COVERED`, `DISTRIBUTE`, `PARTIALLY_COVERED` or `OUT_OF_STOCK`. |
+| `warehouses[]` | array | Only warehouses that hold stock, ordered from most to least. |
+| `warehouses[].warehouseId` | integer | Warehouse id. |
+| `warehouses[].warehouse` | string | Warehouse name. |
+| `warehouses[].availableStock` | integer | Deliverable units in this warehouse. |
+| `warehouses[].quantityToFulfill` | integer | Units suggested to fulfill from this warehouse (greedy allocation). |
+
+The pre-order `status` is also returned in English: `PENDING`, `TAKEN`, `CONVERTED`, `CANCELLED`.
+
+### Response
+
+```json
+[
+  {
+    "id": 21,
+    "folio": "NLN2A101766-00021",
+    "customerCode": "NLN2A101766",
+    "email": null,
+    "phone": null,
+    "notes": null,
+    "status": "PENDING",
+    "isApproved": false,
+    "total": 153190.00,
+    "createdAt": "2026-07-27T09:40:00.000",
+    "items": [
+      {
+        "id": 84,
+        "productCode": "001135",
+        "quantity": 40,
+        "unitPrice": 929.00,
+        "amount": 37160.00,
+        "availableStock": 1710,
+        "coveredQuantity": 40,
+        "shortageQuantity": 0,
+        "fulfillmentStatus": "COVERED",
+        "warehouses": [
+          { "warehouseId": 1540424, "warehouse": "Almacen San Martin", "availableStock": 819, "quantityToFulfill": 40 },
+          { "warehouseId": 1540418, "warehouse": "Cedis Vallejo",       "availableStock": 283, "quantityToFulfill": 0 }
+        ]
+      }
+    ]
+  }
+]
 ```

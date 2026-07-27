@@ -58,3 +58,16 @@ En ese caso el pedido sigue apareciendo en el arreglo `guias` con `guia: "Sin gu
 Un mismo folio puede dividirse en varios pedidos internos. La API regresa un objeto por cada `pedidoId` para que las integraciones puedan mostrar cada pedido interno por separado.
 
 Si un pedido interno tiene varias guias, esas guias se agrupan dentro del mismo arreglo `guias` en lugar de repetir el pedido.
+
+### Que significa el desglose de stock en un item de pre-orden?
+
+Cada item de una pre-orden se enriquece con el stock entregable (`deliverable_qty`) de cada **almacen de venta** (`sales_enabled = 1`). Con eso la API calcula cuanto de lo pedido se puede cubrir (`cantidadCubierta` / `coveredQuantity`), cuanto falta (`cantidadAgotada` / `shortageQuantity`), una sugerencia de reparto por almacen y un estado de surtido:
+
+- `CUBIERTA` / `COVERED` — un solo almacen puede cubrir toda la cantidad.
+- `DISTRIBUIR` / `DISTRIBUTE` — hay stock total suficiente, pero repartido en varios almacenes.
+- `AGOTADO_PARCIAL` / `PARTIALLY_COVERED` — hay algo de stock, pero no alcanza para toda la cantidad.
+- `SIN_STOCK` / `OUT_OF_STOCK` — ningun almacen de venta tiene existencia.
+
+### Por que `/api/preorders/detail` esta en ingles y los demas endpoints de pre-orden en espanol?
+
+Ese endpoint (ruta, nombres de campos y valores de estado) se mantiene en ingles porque lo revisa el equipo de China. Regresa la misma informacion que `GET /api/PreOrdenes/{id}`, solo que traducida. Los demas endpoints conservan sus campos originales en espanol por compatibilidad.
