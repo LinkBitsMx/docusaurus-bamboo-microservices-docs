@@ -71,3 +71,21 @@ Each pre-order item is enriched with the deliverable stock (`deliverable_qty`) o
 ### Why is `/api/preorders/detail` in English while the other pre-order endpoints are in Spanish?
 
 That endpoint (route, JSON field names, and status values) is kept in English because it is reviewed by the China team. It returns the same information as `GET /api/PreOrdenes/{id}`, only translated. The other endpoints keep their original Spanish fields for backward compatibility.
+
+The sales API (`/api/sales`) follows the same rule: it is fully in English because it is handled by the China team.
+
+### Why does a sale have one status and its warehouses another?
+
+Because of how the operational process works. A sale is stored in `quotation` with an **overall status**; while it is still a quotation that is the only status there is, and `isQuotation` comes back as `true` with an empty `warehouses[]`.
+
+Once the quotation is validated, the order is **split and each warehouse keeps its own status**: one warehouse can already be printing shipping labels (`IN_SHIPPING_LABEL`) while another is still packing (`IN_PACKING_OR_REVIEW`). From that point on, `isQuotation` is `false` and the current status of each warehouse is in `warehouses[]`, plus in every item through `warehouseStatus`.
+
+### What is the difference between `status` and `statusRaw` in the sales API?
+
+`statusRaw` is the status name exactly as BambooERP stores it (in Spanish, for example `Pago Validado`), useful to trace the original value. `status` is that same value normalized to the English stages published by the API: `IN_QUOTATION`, `SENT_TO_CEDIS`, `IN_PICKING`, `IN_PACKING_OR_REVIEW`, `IN_SHIPPING_LABEL`, `DELIVERED`, `CANCELLED` or `UNKNOWN`.
+
+Integrations should rely on `status`; `statusRaw` is informational and can add new values as BambooERP evolves.
+
+### Why do some sale items have no warehouse?
+
+Because they are service lines (`isService: true`), such as `ENVIO %` or the freight carrier. They are not fulfilled by any warehouse, so they come back with `warehouseId: null` and `warehouseStatus: null`, and they are summed in `servicesTotal` instead of `productsSubtotal`.

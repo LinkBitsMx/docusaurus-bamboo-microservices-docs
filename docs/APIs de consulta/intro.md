@@ -20,6 +20,7 @@ These APIs let external systems query BambooERP information without accessing th
 | Product prices | Price by internal code or SKU, separated by branch |
 | Warranty query | Products and status associated with a warranty ticket folio |
 | Pre-orders | Submit unconfirmed quotation requests and review them with per-warehouse stock detail |
+| Sales | Detail, totals and per-warehouse status of the sales registered in BambooERP |
 
 ## Base URL
 
@@ -54,4 +55,6 @@ POST /PreOrdenes
 GET  /PreOrdenes
 GET  /PreOrdenes/{id}
 GET  /preorders/detail
+GET  /sales
+GET  /sales/{folio}
 ```

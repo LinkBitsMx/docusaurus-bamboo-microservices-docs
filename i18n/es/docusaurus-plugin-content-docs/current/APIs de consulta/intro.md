@@ -20,6 +20,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Precios de producto | Precio por codigo interno o SKU, separado por sucursal |
 | Consulta de garantia | Productos y estatus asociados a un folio de garantia |
 | Pre-ordenes | Enviar solicitudes de cotizacion sin confirmar y revisarlas con detalle de stock por almacen |
+| Ventas | Detalle, totales y estatus por almacen de las ventas registradas en BambooERP |
 
 ## Base URL
 
@@ -54,4 +55,6 @@ POST /PreOrdenes
 GET  /PreOrdenes
 GET  /PreOrdenes/{id}
 GET  /preorders/detail
+GET  /sales
+GET  /sales/{folio}
 ```

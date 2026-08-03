@@ -410,3 +410,268 @@ The pre-order `status` is also returned in English: `PENDING`, `TAKEN`, `CONVERT
   }
 ]
 ```
+
+## 7. Sales (English endpoint)
+
+Detailed query of the sales registered in BambooERP: header, customer, totals, invoicing, the line-by-line detail and the status of each warehouse.
+
+:::info Language
+This API is fully **in English** — routes, JSON field names, and status values — because it is handled by the China team, same as `6.4`. The other endpoints stay in Spanish.
+:::
+
+### How a sale is modelled
+
+A sale is stored in `quotation` (header, totals and **overall status**) and its detail in `quotation_detail`, where every line holds the warehouse that fulfills it.
+
+- While the sale is a **quotation**, that overall status is the only one that exists: `isQuotation` is `true` and `warehouses[]` comes back empty.
+- Once the quotation is validated, **the order is split and each warehouse keeps its own status**. At that point `isQuotation` turns `false` and `warehouses[]` carries the current status of each one.
+
+In practice, sales not split yet sit in status `Sin procesar` and split ones in `Pago Validado`, but `isQuotation` is computed from the actual existence of per-warehouse orders, not from the status name.
+
+Every status is returned twice:
+
+| Field | Description |
+| --- | --- |
+| `statusRaw` | Status name exactly as stored in BambooERP (in Spanish). Useful to trace the original value. |
+| `status` | That same value normalized to the English stages below. |
+
+**Possible values of `status`:**
+
+| Value | Meaning |
+| --- | --- |
+| `IN_QUOTATION` | Still being quoted |
+| `SENT_TO_CEDIS` | Payment processed, sent to the CEDIS |
+| `IN_PICKING` | Being picked |
+| `IN_PACKING_OR_REVIEW` | Being packed or reviewed |
+| `IN_SHIPPING_LABEL` | Shipping label in process |
+| `DELIVERED` | Collected or delivered |
+| `CANCELLED` | Cancelled |
+| `UNKNOWN` | Status not mapped |
+
+### 7.1 List sales
+
+Paged list of sales, ordered from newest to oldest. Every sale carries its overall status and, once the quotation has been validated, the status of each warehouse order.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/sales
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `startDate` | date | No | Lower bound of the sale date. Example: `2026-07-01` |
+| `endDate` | date | No | Upper bound of the sale date. If sent without a time part, the whole day is included. |
+| `customerCode` | string | No | Exact customer code. Example: `SLP2A101255` |
+| `folio` | string | No | Partial match on the folio. Example: `2607-` |
+| `statusId` | integer | No | Overall status id. Example: `27` (Pago Validado) |
+| `warehouseId` | integer | No | Only sales with lines fulfilled by that warehouse. |
+| `onlyQuotations` | boolean | No | `true` keeps only the sales still in quotation. |
+| `page` | integer | No | Page number. Default `1`. |
+| `pageSize` | integer | No | Page size. Default `50`, maximum `200`. |
+
+Example with filters:
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/sales?startDate=2026-07-01&endDate=2026-07-31&pageSize=50
+```
+
+### Response
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 46,
+  "totalPages": 1,
+  "sales": [
+    {
+      "saleId": 78989,
+      "folio": "2607-00037",
+      "date": "2026-07-21T15:58:26.343",
+      "customerCode": "SLP2A101255",
+      "customer": "JESUS ADIEL DOMINGO MONSIVAIS",
+      "statusId": 27,
+      "statusRaw": "Pago Validado",
+      "status": "SENT_TO_CEDIS",
+      "isQuotation": false,
+      "units": 7600,
+      "totalLines": 7,
+      "total": 130997.0,
+      "warehouses": [
+        {
+          "warehouseId": 1540420,
+          "warehouse": "Cedis Motevideo",
+          "statusId": 17,
+          "statusRaw": "Guia en proceso",
+          "status": "IN_SHIPPING_LABEL"
+        },
+        {
+          "warehouseId": 1540418,
+          "warehouse": "Cedis Vallejo",
+          "statusId": 11,
+          "statusRaw": "Empacado sin procesar",
+          "status": "IN_PACKING_OR_REVIEW"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 7.2 Sale detail
+
+Gets the full detail of a sale by folio. Returns `404` if no sale exists with that folio.
+
+On top of the header and the full detail, `warehouses[]` summarizes each per-warehouse order (status, units, lines and amount it accounts for) and every item states the warehouse fulfilling it along with the status of that order.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/sales/{folio}
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `folio` | string | Yes | Sale folio. Example: `2607-00037` |
+
+Totals:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `units` | integer | Units summed from the product lines. |
+| `totalLines` | integer | Number of detail lines (products and services). |
+| `productsSubtotal` | decimal | Sum of the product lines. |
+| `servicesTotal` | decimal | Sum of the service lines (shipping, freight, etc.). |
+| `lineDiscount` | decimal | Discount summed from the detail lines. |
+| `deliveryTotal` | decimal | Column `total_deliver` of `quotation`. |
+| `assuredTotal` | decimal | Column `total_of_assured` of `quotation`. |
+| `freightCarrierTotal` | decimal | Column `total_fletera` of `quotation`. |
+| `total` | decimal | The amount the sale closes with (column `total`). |
+| `initialTotal` | decimal | Total before any modification (column `total_initial`). |
+| `hasDiscount` | boolean | Whether the sale carries a discount. |
+
+Per-warehouse fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `warehouses[].warehouseId` | integer | Warehouse id. |
+| `warehouses[].warehouse` | string | Warehouse name. |
+| `warehouses[].statusRaw` | string | Status of that warehouse order as stored in BambooERP. |
+| `warehouses[].status` | string | Same status normalized to English. |
+| `warehouses[].assignedAt` | datetime | When the order was assigned to the warehouse. |
+| `warehouses[].units` | integer | Units this warehouse fulfills. |
+| `warehouses[].totalLines` | integer | Detail lines this warehouse fulfills. |
+| `warehouses[].amount` | decimal | Amount those lines account for. |
+
+Per-item fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `items[].productCode` | string | Internal product code. |
+| `items[].sku` | string | Product SKU. |
+| `items[].product` | string | Product name. |
+| `items[].quantity` | integer | Quantity ordered. |
+| `items[].unitPrice` | decimal | Unit price. |
+| `items[].discount` | decimal | Discount applied to the line. |
+| `items[].amount` | decimal | Line amount (`quantity * unitPrice`). |
+| `items[].isService` | boolean | `true` for service lines such as shipping or freight. |
+| `items[].warehouseId` | integer | Warehouse fulfilling the line (`null` for services). |
+| `items[].warehouse` | string | Warehouse name. |
+| `items[].warehouseStatus` | string | Status of that warehouse order (`null` while still a quotation). |
+| `items[].notes` | string | Line notes. |
+
+### Response
+
+```json
+{
+  "saleId": 78989,
+  "folio": "2607-00037",
+  "date": "2026-07-21T15:58:26.343",
+  "customer": {
+    "customerCode": "SLP2A101255",
+    "name": "JESUS ADIEL DOMINGO MONSIVAIS",
+    "email": "",
+    "phone": "",
+    "branch": null
+  },
+  "status": {
+    "statusId": 27,
+    "statusRaw": "Pago Validado",
+    "status": "SENT_TO_CEDIS",
+    "isQuotation": false,
+    "statusDate": "2026-07-21T16:37:14.49"
+  },
+  "totals": {
+    "units": 7600,
+    "totalLines": 7,
+    "productsSubtotal": 129700.0,
+    "servicesTotal": 6127.0,
+    "lineDiscount": 0.0,
+    "deliveryTotal": 0.0,
+    "assuredTotal": 1297.0,
+    "freightCarrierTotal": 0.0,
+    "total": 130997.0,
+    "initialTotal": null,
+    "hasDiscount": false
+  },
+  "invoicing": {
+    "requiresInvoice": false,
+    "invoiced": false,
+    "isCredit": false,
+    "isDirectSale": false
+  },
+  "warehouses": [
+    {
+      "warehouseId": 1540418,
+      "warehouse": "Cedis Vallejo",
+      "statusId": 11,
+      "statusRaw": "Empacado sin procesar",
+      "status": "IN_PACKING_OR_REVIEW",
+      "assignedAt": "2026-07-21T16:26:10.67",
+      "units": 5400,
+      "totalLines": 3,
+      "amount": 34900.0
+    },
+    {
+      "warehouseId": 1540420,
+      "warehouse": "Cedis Motevideo",
+      "statusId": 17,
+      "statusRaw": "Guia en proceso",
+      "status": "IN_SHIPPING_LABEL",
+      "assignedAt": "2026-07-21T16:26:10.67",
+      "units": 2200,
+      "totalLines": 2,
+      "amount": 94800.0
+    }
+  ],
+  "items": [
+    {
+      "itemId": 711380,
+      "productCode": "000449",
+      "sku": "B03W10",
+      "product": "FOCO LED B03W10",
+      "quantity": 5000,
+      "unitPrice": 5.0,
+      "discount": 0.0,
+      "amount": 25000.0,
+      "isService": false,
+      "warehouseId": 1540418,
+      "warehouse": "Cedis Vallejo",
+      "warehouseStatus": "IN_PACKING_OR_REVIEW",
+      "notes": null
+    },
+    {
+      "itemId": 711385,
+      "productCode": "LB00001",
+      "sku": null,
+      "product": "ENVIO %",
+      "quantity": 1,
+      "unitPrice": 1297.0,
+      "discount": 0.0,
+      "amount": 1297.0,
+      "isService": true,
+      "warehouseId": null,
+      "warehouse": null,
+      "warehouseStatus": null,
+      "notes": null
+    }
+  ]
+}
+```

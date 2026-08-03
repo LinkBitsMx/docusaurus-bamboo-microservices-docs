@@ -410,3 +410,268 @@ El `status` de la pre-orden tambien se regresa en ingles: `PENDING`, `TAKEN`, `C
   }
 ]
 ```
+
+## 7. Ventas (endpoint en ingles)
+
+Consulta detallada de las ventas registradas en BambooERP: cabecera, cliente, totales, facturacion, el detalle renglon por renglon y el estatus de cada almacen.
+
+:::info Idioma
+Esta API esta completamente **en ingles** — rutas, nombres de campos y valores de estado — porque la maneja el equipo de China, igual que `6.4`. Los demas endpoints se mantienen en espanol.
+:::
+
+### Como se modela una venta
+
+Una venta se guarda en `quotation` (cabecera, totales y **estatus general**) y su detalle en `quotation_detail`, donde cada renglon guarda el almacen que lo surte.
+
+- Mientras la venta esta en **cotizacion**, ese estatus general es el unico que existe: `isQuotation` es `true` y `warehouses[]` regresa vacio.
+- Al validarse la cotizacion, **la orden se divide y cada almacen guarda su propio estatus**. En ese momento `isQuotation` pasa a `false` y `warehouses[]` trae el estatus vigente de cada uno.
+
+En la practica, las ventas que aun no se dividen estan en estatus `Sin procesar` y las ya divididas en `Pago Validado`, pero `isQuotation` se calcula por la existencia real de ordenes por almacen, no por el nombre del estatus.
+
+Cada estatus se regresa por duplicado:
+
+| Campo | Descripcion |
+| --- | --- |
+| `statusRaw` | Nombre del estatus tal cual esta en BambooERP (en espanol). Sirve para rastrear el valor original. |
+| `status` | Ese mismo valor normalizado a las etapas en ingles de abajo. |
+
+**Valores posibles de `status`:**
+
+| Valor | Significado |
+| --- | --- |
+| `IN_QUOTATION` | Aun en cotizacion |
+| `SENT_TO_CEDIS` | Pago procesado, se mando a surtir al CEDIS |
+| `IN_PICKING` | En proceso de surtido |
+| `IN_PACKING_OR_REVIEW` | En proceso de empacado o revision |
+| `IN_SHIPPING_LABEL` | En proceso de guias de envio |
+| `DELIVERED` | Recolectado o entregado |
+| `CANCELLED` | Cancelado |
+| `UNKNOWN` | Estatus sin mapear |
+
+### 7.1 Listar ventas
+
+Lista paginada de ventas, ordenadas de la mas reciente a la mas antigua. Cada venta trae su estatus general y, si ya se valido la cotizacion, el estatus de la orden de cada almacen.
+
+```http
+GET https://bamboonetapi.ddns.net/api/sales
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `startDate` | date | No | Limite inferior de la fecha de venta. Ejemplo: `2026-07-01` |
+| `endDate` | date | No | Limite superior de la fecha de venta. Si se manda sin hora, se incluye el dia completo. |
+| `customerCode` | string | No | Codigo de cliente exacto. Ejemplo: `SLP2A101255` |
+| `folio` | string | No | Coincidencia parcial del folio. Ejemplo: `2607-` |
+| `statusId` | integer | No | Id del estatus general. Ejemplo: `27` (Pago Validado) |
+| `warehouseId` | integer | No | Solo ventas con renglones surtidos por ese almacen. |
+| `onlyQuotations` | boolean | No | `true` deja unicamente las ventas que siguen en cotizacion. |
+| `page` | integer | No | Numero de pagina. Default `1`. |
+| `pageSize` | integer | No | Tamano de pagina. Default `50`, maximo `200`. |
+
+Ejemplo con filtros:
+
+```http
+GET https://bamboonetapi.ddns.net/api/sales?startDate=2026-07-01&endDate=2026-07-31&pageSize=50
+```
+
+### Respuesta
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 46,
+  "totalPages": 1,
+  "sales": [
+    {
+      "saleId": 78989,
+      "folio": "2607-00037",
+      "date": "2026-07-21T15:58:26.343",
+      "customerCode": "SLP2A101255",
+      "customer": "JESUS ADIEL DOMINGO MONSIVAIS",
+      "statusId": 27,
+      "statusRaw": "Pago Validado",
+      "status": "SENT_TO_CEDIS",
+      "isQuotation": false,
+      "units": 7600,
+      "totalLines": 7,
+      "total": 130997.0,
+      "warehouses": [
+        {
+          "warehouseId": 1540420,
+          "warehouse": "Cedis Motevideo",
+          "statusId": 17,
+          "statusRaw": "Guia en proceso",
+          "status": "IN_SHIPPING_LABEL"
+        },
+        {
+          "warehouseId": 1540418,
+          "warehouse": "Cedis Vallejo",
+          "statusId": 11,
+          "statusRaw": "Empacado sin procesar",
+          "status": "IN_PACKING_OR_REVIEW"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 7.2 Detalle de venta
+
+Obtiene el detalle completo de una venta por folio. Regresa `404` si no existe ninguna venta con ese folio.
+
+Ademas de la cabecera y el detalle completo, `warehouses[]` resume cada orden por almacen (estatus, piezas, renglones e importe que le tocan) y cada item indica el almacen que lo surte junto con el estatus de esa orden.
+
+```http
+GET https://bamboonetapi.ddns.net/api/sales/{folio}
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `folio` | string | Si | Folio de la venta. Ejemplo: `2607-00037` |
+
+Totales:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `units` | integer | Piezas sumadas de los renglones de producto. |
+| `totalLines` | integer | Numero de renglones del detalle (productos y servicios). |
+| `productsSubtotal` | decimal | Suma de los renglones de producto. |
+| `servicesTotal` | decimal | Suma de los renglones de servicio (envio, flete, etc.). |
+| `lineDiscount` | decimal | Descuento sumado de los renglones. |
+| `deliveryTotal` | decimal | Columna `total_deliver` de `quotation`. |
+| `assuredTotal` | decimal | Columna `total_of_assured` de `quotation`. |
+| `freightCarrierTotal` | decimal | Columna `total_fletera` de `quotation`. |
+| `total` | decimal | Total con el que cierra la venta (columna `total`). |
+| `initialTotal` | decimal | Total antes de modificaciones (columna `total_initial`). |
+| `hasDiscount` | boolean | Si la venta trae descuento. |
+
+Campos por almacen:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `warehouses[].warehouseId` | integer | Id del almacen. |
+| `warehouses[].warehouse` | string | Nombre del almacen. |
+| `warehouses[].statusRaw` | string | Estatus de esa orden tal cual esta en BambooERP. |
+| `warehouses[].status` | string | Ese mismo estatus normalizado en ingles. |
+| `warehouses[].assignedAt` | datetime | Cuando se asigno la orden al almacen. |
+| `warehouses[].units` | integer | Piezas que surte este almacen. |
+| `warehouses[].totalLines` | integer | Renglones que surte este almacen. |
+| `warehouses[].amount` | decimal | Importe de esos renglones. |
+
+Campos por item:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `items[].productCode` | string | Codigo interno del producto. |
+| `items[].sku` | string | SKU del producto. |
+| `items[].product` | string | Nombre del producto. |
+| `items[].quantity` | integer | Cantidad pedida. |
+| `items[].unitPrice` | decimal | Precio unitario. |
+| `items[].discount` | decimal | Descuento aplicado al renglon. |
+| `items[].amount` | decimal | Importe del renglon (`quantity * unitPrice`). |
+| `items[].isService` | boolean | `true` en renglones de servicio como envio o flete. |
+| `items[].warehouseId` | integer | Almacen que surte el renglon (`null` en servicios). |
+| `items[].warehouse` | string | Nombre del almacen. |
+| `items[].warehouseStatus` | string | Estatus de esa orden por almacen (`null` mientras sigue en cotizacion). |
+| `items[].notes` | string | Notas del renglon. |
+
+### Respuesta
+
+```json
+{
+  "saleId": 78989,
+  "folio": "2607-00037",
+  "date": "2026-07-21T15:58:26.343",
+  "customer": {
+    "customerCode": "SLP2A101255",
+    "name": "JESUS ADIEL DOMINGO MONSIVAIS",
+    "email": "",
+    "phone": "",
+    "branch": null
+  },
+  "status": {
+    "statusId": 27,
+    "statusRaw": "Pago Validado",
+    "status": "SENT_TO_CEDIS",
+    "isQuotation": false,
+    "statusDate": "2026-07-21T16:37:14.49"
+  },
+  "totals": {
+    "units": 7600,
+    "totalLines": 7,
+    "productsSubtotal": 129700.0,
+    "servicesTotal": 6127.0,
+    "lineDiscount": 0.0,
+    "deliveryTotal": 0.0,
+    "assuredTotal": 1297.0,
+    "freightCarrierTotal": 0.0,
+    "total": 130997.0,
+    "initialTotal": null,
+    "hasDiscount": false
+  },
+  "invoicing": {
+    "requiresInvoice": false,
+    "invoiced": false,
+    "isCredit": false,
+    "isDirectSale": false
+  },
+  "warehouses": [
+    {
+      "warehouseId": 1540418,
+      "warehouse": "Cedis Vallejo",
+      "statusId": 11,
+      "statusRaw": "Empacado sin procesar",
+      "status": "IN_PACKING_OR_REVIEW",
+      "assignedAt": "2026-07-21T16:26:10.67",
+      "units": 5400,
+      "totalLines": 3,
+      "amount": 34900.0
+    },
+    {
+      "warehouseId": 1540420,
+      "warehouse": "Cedis Motevideo",
+      "statusId": 17,
+      "statusRaw": "Guia en proceso",
+      "status": "IN_SHIPPING_LABEL",
+      "assignedAt": "2026-07-21T16:26:10.67",
+      "units": 2200,
+      "totalLines": 2,
+      "amount": 94800.0
+    }
+  ],
+  "items": [
+    {
+      "itemId": 711380,
+      "productCode": "000449",
+      "sku": "B03W10",
+      "product": "FOCO LED B03W10",
+      "quantity": 5000,
+      "unitPrice": 5.0,
+      "discount": 0.0,
+      "amount": 25000.0,
+      "isService": false,
+      "warehouseId": 1540418,
+      "warehouse": "Cedis Vallejo",
+      "warehouseStatus": "IN_PACKING_OR_REVIEW",
+      "notes": null
+    },
+    {
+      "itemId": 711385,
+      "productCode": "LB00001",
+      "sku": null,
+      "product": "ENVIO %",
+      "quantity": 1,
+      "unitPrice": 1297.0,
+      "discount": 0.0,
+      "amount": 1297.0,
+      "isService": true,
+      "warehouseId": null,
+      "warehouse": null,
+      "warehouseStatus": null,
+      "notes": null
+    }
+  ]
+}
+```

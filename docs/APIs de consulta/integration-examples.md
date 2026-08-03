@@ -90,6 +90,93 @@ When no information exists:
 No information was found for that folio. Please verify that it is written correctly.
 ```
 
+## Query a sale with its per-warehouse status from JavaScript
+
+```javascript
+async function querySale(folio) {
+  const response = await fetch(
+    `http://pfconexionlinkbits.ddns.net:50780/api/sales/${encodeURIComponent(folio)}`,
+    {
+      method: 'GET',
+      headers: {
+        'X-API-Key': 'YOUR_API_KEY_HERE',
+        'Accept': 'application/json',
+      },
+    }
+  );
+
+  if (response.status === 404) {
+    return {
+      found: false,
+      message: 'No sale was found for that folio.',
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP error ${response.status}`);
+  }
+
+  const sale = await response.json();
+
+  return {
+    found: true,
+    folio: sale.folio,
+    total: sale.totals.total,
+    // While the sale is a quotation there is a single status and no warehouses yet.
+    isQuotation: sale.status.isQuotation,
+    status: sale.status.status,
+    warehouses: sale.warehouses.map((warehouse) => ({
+      warehouse: warehouse.warehouse,
+      status: warehouse.status,
+      units: warehouse.units,
+      amount: warehouse.amount,
+    })),
+  };
+}
+```
+
+To list the sales of a period, use `/api/sales` with `startDate`, `endDate`, and paging:
+
+```javascript
+async function listSales({ startDate, endDate, page = 1, pageSize = 50 }) {
+  const query = new URLSearchParams({ startDate, endDate, page, pageSize });
+
+  const response = await fetch(
+    `http://pfconexionlinkbits.ddns.net:50780/api/sales?${query}`,
+    {
+      method: 'GET',
+      headers: {
+        'X-API-Key': 'YOUR_API_KEY_HERE',
+        'Accept': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`HTTP error ${response.status}`);
+  }
+
+  // totalPages tells you whether another page needs to be requested.
+  return response.json();
+}
+```
+
+## Suggested message for a split sale
+
+```text
+Sale 2607-00037 — total $130,997.00
+
+Cedis Vallejo: packing in process (5,400 units)
+Cedis Motevideo: shipping label in process (2,200 units)
+```
+
+When the sale is still a quotation:
+
+```text
+Sale 2608-00004 is still in quotation.
+It has not been assigned to a warehouse yet.
+```
+
 ## Recommended error handling
 
 | Code | Suggested handling |
