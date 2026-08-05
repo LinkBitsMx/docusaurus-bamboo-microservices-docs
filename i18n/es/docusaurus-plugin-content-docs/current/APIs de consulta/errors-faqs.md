@@ -86,6 +86,18 @@ Al validarse la cotizacion, la orden **se divide y cada almacen guarda su propio
 
 Las integraciones deben apoyarse en `status`; `statusRaw` es informativo y puede sumar valores nuevos conforme evolucione BambooERP.
 
+### Por que `paymentsTotal` no coincide con el `total` de la venta?
+
+Porque responden preguntas distintas. `total` es el monto con el que cierra la venta (columna `quotation.total`), mientras que `paymentsTotal` es la suma de los pagos realmente registrados contra ella (`payments[].amount`).
+
+Pueden diferir de forma legitima en ambos sentidos: una venta puede quedar parcialmente pagada (total 36,750 con 36,250.40 registrados) o traer pagos por encima de su total. **No uses `paymentsTotal` para dar por liquidada una venta** — revisa los pagos individuales y su `status`.
+
+### Una venta puede tener varios pagos con formas distintas?
+
+Si, y es comun. Una misma venta puede combinar una transferencia, varios saldos a favor y efectivo. Cada elemento de `payments[]` trae su propio monto, forma (`paymentFormCode` / `paymentForm`) y estatus, asi que la mezcla de pagos se puede reconstruir agrupando por forma.
+
+El `paymentFormCode` es el codigo SAT de `sat_FormaPago`: `01` efectivo, `02` cheque, `03` transferencia electronica, `04` tarjeta de credito, `17` saldo a favor, `28` tarjeta de debito, entre otros.
+
 ### Por que algunos items de una venta no traen almacen?
 
 Porque son renglones de servicio (`isService: true`), como `ENVIO %` o la fletera. No los surte ningun almacen, asi que regresan con `warehouseId: null` y `warehouseStatus: null`, y se suman en `servicesTotal` en lugar de `productsSubtotal`.

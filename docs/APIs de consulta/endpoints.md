@@ -448,6 +448,68 @@ Every status is returned twice:
 | `CANCELLED` | Cancelled |
 | `UNKNOWN` | Status not mapped |
 
+### Branch and department
+
+A sale reaches its branch through its department:
+
+```text
+quotation.DepartamentoId -> departments.id
+departments.branchId     -> starnet_branches.id
+```
+
+Filter with `branchCode` in `7.1`, using `starnet_branches.code` (for example `801.10.02` for Sucursal Florida). One branch groups several departments, so `801.01.01` (REGIONES) covers the sales of Oficina, Rutas, Region Noreste, and AEK together.
+
+The list returns `branchCode` and `branch` (name). The detail returns a `branch` object and the `department` it came from:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `branch.branchId` | integer | Branch id (`starnet_branches.id`). |
+| `branch.code` | string | Branch code — the value the `branchCode` filter takes. Example: `801.10.02` |
+| `branch.name` | string | Branch name. Example: `Sucursal Florida` |
+| `department.departmentId` | integer | Department id (`departments.id`). |
+| `department.code` | string | Department code. Example: `801010302` |
+| `department.name` | string | Department name. |
+| `department.zone` | string | Zone it belongs to. Example: `CDMX`, `GDL`, `MTY` |
+
+:::note
+A few sales do not resolve a branch: either they have no department, or they point to a department id that no longer exists in `departments`. In those cases `branch` and `department` come back as `null`.
+:::
+
+### Seller and payments
+
+The salesperson who registered the sale comes from `quotation.usuarioId` joined against `catUsers`. The list returns `sellerId` and `seller` (full name); the detail returns a `seller` object with code, email, and username.
+
+The detail also returns `payments[]`, the payments registered against the sale with their payment form. The relation goes:
+
+```text
+quotation.id                     -> rel_quotes_to_payments.Quote_id
+rel_quotes_to_payments.VoucherId -> Payments.Id
+```
+
+:::note
+The payment is carried by `VoucherId`, not by `payment_id`. Rows with `VoucherId = 0` are placeholders without a payment and are skipped.
+:::
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `payments[].paymentId` | integer | Payment id (`Payments.Id`). |
+| `payments[].folio` | string | Payment folio. Example: `PAY-0726-000010` |
+| `payments[].paymentDate` | datetime | Date of the payment. |
+| `payments[].amount` | decimal | Amount of this payment. |
+| `payments[].paymentFormCode` | string | SAT code of the payment form (`sat_FormaPago.vchCode`). Example: `03` |
+| `payments[].paymentForm` | string | Payment form name. Example: `Transferencia electronica de fondos` |
+| `payments[].statusRaw` | string | Payment status as stored in BambooERP (in Spanish). |
+| `payments[].status` | string | `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` or `UNKNOWN`. |
+| `payments[].reference` | string | Bank reference, when registered. |
+| `payments[].paymentType` | string | Payment type as stored. Example: `payment` |
+| `payments[].createdAt` | datetime | When the payment was tied to the sale. |
+
+A sale can carry several payments with different forms — for example a transfer, a set of credit-note balances, and cash on the same sale. `totals.paymentsTotal` sums `payments[].amount`.
+
+:::warning
+`paymentsTotal` does **not** have to match `total`: a sale can be partially paid, or carry payments registered above its total. Do not use it to infer that a sale is settled.
+:::
+
 ### 7.1 List sales
 
 Paged list of sales, ordered from newest to oldest. Every sale carries its overall status and, once the quotation has been validated, the status of each warehouse order.
@@ -462,17 +524,33 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/sales
 | `endDate` | date | No | Upper bound of the sale date. If sent without a time part, the whole day is included. |
 | `customerCode` | string | No | Exact customer code. Example: `SLP2A101255` |
 | `folio` | string | No | Partial match on the folio. Example: `2607-` |
-| `statusId` | integer | No | Overall status id. Example: `27` (Pago Validado) |
+| `statusId` | integer | No | **Overall** status of the sale (`quotation.status_id`). Only 5 values ever reach it — see the warning below. |
+| `warehouseStatusId` | integer | No | Status of the **per-warehouse orders**: keeps sales where at least one warehouse is currently in that status. Example: `21` (Recolectado) |
 | `warehouseId` | integer | No | Only sales with lines fulfilled by that warehouse. |
+| `branchCode` | string | No | Branch code (`starnet_branches.code`). Example: `801.10.02` (Sucursal Florida) |
 | `onlyQuotations` | boolean | No | `true` keeps only the sales still in quotation. |
+| `includePayments` | boolean | No | `true` adds `payments[]` and `paymentsTotal` to every sale in the list. Default `false`. |
 | `page` | integer | No | Page number. Default `1`. |
 | `pageSize` | integer | No | Page size. Default `50`, maximum `200`. |
+
+:::warning `statusId` is not the fulfillment stage
+`quotation.status_id` only ever holds 5 values: `1` Sin procesar, `27` Pago Validado, `23` Cancelado, `28` Pago no valido and `29` Pago sin proceso.
+
+The fulfillment stages — `21` Recolectado, `18` Guia Generada, `15` Empacado Finalizado, and the rest — live on the **per-warehouse orders**, so `statusId=21` always returns 0 sales. Use `warehouseStatusId=21` instead.
+:::
+
+By default the list does **not** include payments, because they cost one extra query per page. Ask for them with `includePayments=true` and every sale gains `payments[]` (same fields as the detail) plus `paymentsTotal`. The detail endpoint always returns them.
 
 Example with filters:
 
 ```http
 GET http://pfconexionlinkbits.ddns.net:50780/api/sales?startDate=2026-07-01&endDate=2026-07-31&pageSize=50
+GET http://pfconexionlinkbits.ddns.net:50780/api/sales?branchCode=801.01.01&startDate=2026-05-01&endDate=2026-06-01&warehouseStatusId=21&includePayments=true
 ```
+
+:::note
+All filters travel in the **query string**. This is a `GET`: filters sent as a JSON body are ignored, and the request comes back as if it had no filters at all.
+:::
 
 ### Response
 
@@ -489,6 +567,10 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/sales?startDate=2026-07-01&endD
       "date": "2026-07-21T15:58:26.343",
       "customerCode": "SLP2A101255",
       "customer": "JESUS ADIEL DOMINGO MONSIVAIS",
+      "branchCode": "801.10.02",
+      "branch": "Sucursal Florida",
+      "sellerId": 167,
+      "seller": "Fernando Dominguez Garcia",
       "statusId": 27,
       "statusRaw": "Pago Validado",
       "status": "SENT_TO_CEDIS",
@@ -540,6 +622,7 @@ Totals:
 | `productsSubtotal` | decimal | Sum of the product lines. |
 | `servicesTotal` | decimal | Sum of the service lines (shipping, freight, etc.). |
 | `lineDiscount` | decimal | Discount summed from the detail lines. |
+| `paymentsTotal` | decimal | Sum of `payments[].amount` — what has actually been paid. |
 | `deliveryTotal` | decimal | Column `total_deliver` of `quotation`. |
 | `assuredTotal` | decimal | Column `total_of_assured` of `quotation`. |
 | `freightCarrierTotal` | decimal | Column `total_fletera` of `quotation`. |
@@ -591,6 +674,24 @@ Per-item fields:
     "phone": "",
     "branch": null
   },
+  "seller": {
+    "sellerId": 167,
+    "name": "Fernando Dominguez Garcia",
+    "code": "testLuisilloPillo",
+    "email": "Fernando.DominguezGarcia@gmail.com",
+    "username": "1369"
+  },
+  "branch": {
+    "branchId": 1148512,
+    "code": "801.10.02",
+    "name": "Sucursal Florida"
+  },
+  "department": {
+    "departmentId": 10,
+    "code": "801010302",
+    "name": "Sucursal Florida",
+    "zone": "CDMX"
+  },
   "status": {
     "statusId": 27,
     "statusRaw": "Pago Validado",
@@ -604,6 +705,7 @@ Per-item fields:
     "productsSubtotal": 129700.0,
     "servicesTotal": 6127.0,
     "lineDiscount": 0.0,
+    "paymentsTotal": 135827.0,
     "deliveryTotal": 0.0,
     "assuredTotal": 1297.0,
     "freightCarrierTotal": 0.0,
@@ -671,6 +773,22 @@ Per-item fields:
       "warehouse": null,
       "warehouseStatus": null,
       "notes": null
+    }
+  ],
+  "payments": [
+    {
+      "paymentId": 34049,
+      "folio": "PAY-0726-000010",
+      "paymentDate": "2026-07-21T00:00:00",
+      "amount": 135827.0,
+      "paymentFormCode": "01",
+      "paymentForm": "Efectivo",
+      "statusId": 29,
+      "statusRaw": "Valido",
+      "status": "VALID",
+      "reference": null,
+      "paymentType": "payment",
+      "createdAt": "2026-07-21T16:36:06.54"
     }
   ]
 }

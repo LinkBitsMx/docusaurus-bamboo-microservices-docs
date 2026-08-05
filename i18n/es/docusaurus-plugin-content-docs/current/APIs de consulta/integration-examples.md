@@ -161,13 +161,48 @@ async function listarVentas({ startDate, endDate, page = 1, pageSize = 50 }) {
 }
 ```
 
+## Desglosar una venta por forma de pago
+
+```javascript
+function pagosPorForma(venta) {
+  const porForma = new Map();
+
+  for (const pago of venta.payments) {
+    // Ignora lo que no fue aceptado (REJECTED, PENDING, ...).
+    if (pago.status !== 'VALID') continue;
+
+    const clave = `${pago.paymentFormCode} ${pago.paymentForm}`;
+    const actual = porForma.get(clave) ?? { pagos: 0, monto: 0 };
+
+    porForma.set(clave, {
+      pagos: actual.pagos + 1,
+      monto: actual.monto + pago.amount,
+    });
+  }
+
+  return {
+    vendedor: venta.seller?.name ?? null,
+    sucursal: venta.branch?.name ?? null,
+    total: venta.totals.total,
+    pagado: venta.totals.paymentsTotal,
+    // paymentsTotal puede quedar por debajo del total (pago parcial) o por encima.
+    pendiente: venta.totals.total - venta.totals.paymentsTotal,
+    formas: Object.fromEntries(porForma),
+  };
+}
+```
+
 ## Mensaje sugerido para una venta dividida
 
 ```text
 Venta 2607-00037 — total $130,997.00
+Vendedor: Fernando Dominguez Garcia (Sucursal Florida)
 
 Cedis Vallejo: empacado en proceso (5,400 piezas)
 Cedis Motevideo: guia de envio en proceso (2,200 piezas)
+
+Pagos registrados: $135,827.00
+- Efectivo (01): $135,827.00
 ```
 
 Cuando la venta sigue en cotizacion:

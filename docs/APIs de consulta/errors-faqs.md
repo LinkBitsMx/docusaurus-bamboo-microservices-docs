@@ -86,6 +86,18 @@ Once the quotation is validated, the order is **split and each warehouse keeps i
 
 Integrations should rely on `status`; `statusRaw` is informational and can add new values as BambooERP evolves.
 
+### Why does `paymentsTotal` not match the sale `total`?
+
+Because they answer different questions. `total` is what the sale closes with (column `quotation.total`), while `paymentsTotal` is the sum of the payments actually registered against it (`payments[].amount`).
+
+They can legitimately differ in both directions: a sale can be partially paid (total 36,750 with 36,250.40 registered), or carry payments above its total. **Do not use `paymentsTotal` to decide that a sale is settled** — check the individual payments and their `status`.
+
+### Can a sale have several payments with different payment forms?
+
+Yes, and it is common. A single sale can combine a bank transfer, several credit-note balances, and cash. Each entry in `payments[]` carries its own amount, form (`paymentFormCode` / `paymentForm`), and status, so the payment mix can be reconstructed by grouping on the form.
+
+The `paymentFormCode` is the SAT code from `sat_FormaPago`: `01` cash, `02` cheque, `03` electronic transfer, `04` credit card, `17` credit balance, `28` debit card, among others.
+
 ### Why do some sale items have no warehouse?
 
 Because they are service lines (`isService: true`), such as `ENVIO %` or the freight carrier. They are not fulfilled by any warehouse, so they come back with `warehouseId: null` and `warehouseStatus: null`, and they are summed in `servicesTotal` instead of `productsSubtotal`.

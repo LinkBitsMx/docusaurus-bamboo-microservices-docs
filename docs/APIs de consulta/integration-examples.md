@@ -161,13 +161,48 @@ async function listSales({ startDate, endDate, page = 1, pageSize = 50 }) {
 }
 ```
 
+## Break a sale down by payment form
+
+```javascript
+function paymentsByForm(sale) {
+  const byForm = new Map();
+
+  for (const payment of sale.payments) {
+    // Ignore anything that was not accepted (REJECTED, PENDING, ...).
+    if (payment.status !== 'VALID') continue;
+
+    const key = `${payment.paymentFormCode} ${payment.paymentForm}`;
+    const current = byForm.get(key) ?? { count: 0, amount: 0 };
+
+    byForm.set(key, {
+      count: current.count + 1,
+      amount: current.amount + payment.amount,
+    });
+  }
+
+  return {
+    seller: sale.seller?.name ?? null,
+    branch: sale.branch?.name ?? null,
+    total: sale.totals.total,
+    paid: sale.totals.paymentsTotal,
+    // paymentsTotal can be below total (partially paid) or above it.
+    pending: sale.totals.total - sale.totals.paymentsTotal,
+    forms: Object.fromEntries(byForm),
+  };
+}
+```
+
 ## Suggested message for a split sale
 
 ```text
 Sale 2607-00037 — total $130,997.00
+Seller: Fernando Dominguez Garcia (Sucursal Florida)
 
 Cedis Vallejo: packing in process (5,400 units)
 Cedis Motevideo: shipping label in process (2,200 units)
+
+Registered payments: $135,827.00
+- Efectivo (01): $135,827.00
 ```
 
 When the sale is still a quotation:

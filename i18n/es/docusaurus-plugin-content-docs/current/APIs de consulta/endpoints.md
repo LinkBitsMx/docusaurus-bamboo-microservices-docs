@@ -448,6 +448,68 @@ Cada estatus se regresa por duplicado:
 | `CANCELLED` | Cancelado |
 | `UNKNOWN` | Estatus sin mapear |
 
+### Sucursal y departamento
+
+La venta llega a su sucursal a traves de su departamento:
+
+```text
+quotation.DepartamentoId -> departments.id
+departments.branchId     -> starnet_branches.id
+```
+
+Filtra con `branchCode` en `7.1`, usando `starnet_branches.code` (por ejemplo `801.10.02` para Sucursal Florida). Una sucursal agrupa varios departamentos, asi que `801.01.01` (REGIONES) cubre juntas las ventas de Oficina, Rutas, Region Noreste y AEK.
+
+El listado regresa `branchCode` y `branch` (nombre). El detalle regresa un objeto `branch` y el `department` del que proviene:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `branch.branchId` | integer | Id de la sucursal (`starnet_branches.id`). |
+| `branch.code` | string | Codigo de la sucursal — el valor que toma el filtro `branchCode`. Ejemplo: `801.10.02` |
+| `branch.name` | string | Nombre de la sucursal. Ejemplo: `Sucursal Florida` |
+| `department.departmentId` | integer | Id del departamento (`departments.id`). |
+| `department.code` | string | Codigo del departamento. Ejemplo: `801010302` |
+| `department.name` | string | Nombre del departamento. |
+| `department.zone` | string | Zona a la que pertenece. Ejemplo: `CDMX`, `GDL`, `MTY` |
+
+:::note
+Algunas ventas no resuelven sucursal: o no tienen departamento, o apuntan a un id de departamento que ya no existe en `departments`. En esos casos `branch` y `department` regresan `null`.
+:::
+
+### Vendedor y pagos
+
+El vendedor que registro la venta sale de `quotation.usuarioId` con el join contra `catUsers`. El listado regresa `sellerId` y `seller` (nombre completo); el detalle regresa un objeto `seller` con codigo, correo y usuario.
+
+El detalle tambien regresa `payments[]`, los pagos registrados contra la venta con su forma de pago. La relacion es:
+
+```text
+quotation.id                     -> rel_quotes_to_payments.Quote_id
+rel_quotes_to_payments.VoucherId -> Payments.Id
+```
+
+:::note
+El pago viaja en `VoucherId`, no en `payment_id`. Las filas con `VoucherId = 0` son placeholders sin pago y se omiten.
+:::
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `payments[].paymentId` | integer | Id del pago (`Payments.Id`). |
+| `payments[].folio` | string | Folio del pago. Ejemplo: `PAY-0726-000010` |
+| `payments[].paymentDate` | datetime | Fecha del pago. |
+| `payments[].amount` | decimal | Monto de este pago. |
+| `payments[].paymentFormCode` | string | Codigo SAT de la forma de pago (`sat_FormaPago.vchCode`). Ejemplo: `03` |
+| `payments[].paymentForm` | string | Nombre de la forma de pago. Ejemplo: `Transferencia electronica de fondos` |
+| `payments[].statusRaw` | string | Estatus del pago tal cual esta en BambooERP (en espanol). |
+| `payments[].status` | string | `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` o `UNKNOWN`. |
+| `payments[].reference` | string | Referencia bancaria, cuando se registro. |
+| `payments[].paymentType` | string | Tipo de pago tal cual se guarda. Ejemplo: `payment` |
+| `payments[].createdAt` | datetime | Cuando se ligo el pago a la venta. |
+
+Una venta puede traer varios pagos con formas distintas — por ejemplo una transferencia, varios saldos a favor y efectivo en la misma venta. `totals.paymentsTotal` suma `payments[].amount`.
+
+:::warning
+`paymentsTotal` **no** tiene por que coincidir con `total`: una venta puede quedar parcialmente pagada o traer pagos registrados por encima de su total. No lo uses para dar por liquidada una venta.
+:::
+
 ### 7.1 Listar ventas
 
 Lista paginada de ventas, ordenadas de la mas reciente a la mas antigua. Cada venta trae su estatus general y, si ya se valido la cotizacion, el estatus de la orden de cada almacen.
@@ -462,17 +524,33 @@ GET https://bamboonetapi.ddns.net/api/sales
 | `endDate` | date | No | Limite superior de la fecha de venta. Si se manda sin hora, se incluye el dia completo. |
 | `customerCode` | string | No | Codigo de cliente exacto. Ejemplo: `SLP2A101255` |
 | `folio` | string | No | Coincidencia parcial del folio. Ejemplo: `2607-` |
-| `statusId` | integer | No | Id del estatus general. Ejemplo: `27` (Pago Validado) |
+| `statusId` | integer | No | Estatus **general** de la venta (`quotation.status_id`). Solo toma 5 valores — ver el aviso de abajo. |
+| `warehouseStatusId` | integer | No | Estatus de las **ordenes por almacen**: deja las ventas donde al menos un almacen esta hoy en ese estatus. Ejemplo: `21` (Recolectado) |
 | `warehouseId` | integer | No | Solo ventas con renglones surtidos por ese almacen. |
+| `branchCode` | string | No | Codigo de sucursal (`starnet_branches.code`). Ejemplo: `801.10.02` (Sucursal Florida) |
 | `onlyQuotations` | boolean | No | `true` deja unicamente las ventas que siguen en cotizacion. |
+| `includePayments` | boolean | No | `true` agrega `payments[]` y `paymentsTotal` a cada venta del listado. Default `false`. |
 | `page` | integer | No | Numero de pagina. Default `1`. |
 | `pageSize` | integer | No | Tamano de pagina. Default `50`, maximo `200`. |
+
+:::warning `statusId` no es la etapa de surtido
+`quotation.status_id` solo guarda 5 valores: `1` Sin procesar, `27` Pago Validado, `23` Cancelado, `28` Pago no valido y `29` Pago sin proceso.
+
+Las etapas de surtido — `21` Recolectado, `18` Guia Generada, `15` Empacado Finalizado y las demas — viven en las **ordenes por almacen**, asi que `statusId=21` siempre regresa 0 ventas. Usa `warehouseStatusId=21` en su lugar.
+:::
+
+Por default el listado **no** incluye los pagos, porque cuestan una consulta extra por pagina. Pidelos con `includePayments=true` y cada venta gana `payments[]` (los mismos campos del detalle) mas `paymentsTotal`. El endpoint de detalle siempre los regresa.
 
 Ejemplo con filtros:
 
 ```http
 GET https://bamboonetapi.ddns.net/api/sales?startDate=2026-07-01&endDate=2026-07-31&pageSize=50
+GET https://bamboonetapi.ddns.net/api/sales?branchCode=801.01.01&startDate=2026-05-01&endDate=2026-06-01&warehouseStatusId=21&includePayments=true
 ```
+
+:::note
+Todos los filtros viajan en el **query string**. Este es un `GET`: los filtros enviados como cuerpo JSON se ignoran y la peticion regresa como si no llevara filtros.
+:::
 
 ### Respuesta
 
@@ -489,6 +567,10 @@ GET https://bamboonetapi.ddns.net/api/sales?startDate=2026-07-01&endDate=2026-07
       "date": "2026-07-21T15:58:26.343",
       "customerCode": "SLP2A101255",
       "customer": "JESUS ADIEL DOMINGO MONSIVAIS",
+      "branchCode": "801.10.02",
+      "branch": "Sucursal Florida",
+      "sellerId": 167,
+      "seller": "Fernando Dominguez Garcia",
       "statusId": 27,
       "statusRaw": "Pago Validado",
       "status": "SENT_TO_CEDIS",
@@ -540,6 +622,7 @@ Totales:
 | `productsSubtotal` | decimal | Suma de los renglones de producto. |
 | `servicesTotal` | decimal | Suma de los renglones de servicio (envio, flete, etc.). |
 | `lineDiscount` | decimal | Descuento sumado de los renglones. |
+| `paymentsTotal` | decimal | Suma de `payments[].amount` — lo realmente pagado. |
 | `deliveryTotal` | decimal | Columna `total_deliver` de `quotation`. |
 | `assuredTotal` | decimal | Columna `total_of_assured` de `quotation`. |
 | `freightCarrierTotal` | decimal | Columna `total_fletera` de `quotation`. |
@@ -591,6 +674,24 @@ Campos por item:
     "phone": "",
     "branch": null
   },
+  "seller": {
+    "sellerId": 167,
+    "name": "Fernando Dominguez Garcia",
+    "code": "testLuisilloPillo",
+    "email": "Fernando.DominguezGarcia@gmail.com",
+    "username": "1369"
+  },
+  "branch": {
+    "branchId": 1148512,
+    "code": "801.10.02",
+    "name": "Sucursal Florida"
+  },
+  "department": {
+    "departmentId": 10,
+    "code": "801010302",
+    "name": "Sucursal Florida",
+    "zone": "CDMX"
+  },
   "status": {
     "statusId": 27,
     "statusRaw": "Pago Validado",
@@ -604,6 +705,7 @@ Campos por item:
     "productsSubtotal": 129700.0,
     "servicesTotal": 6127.0,
     "lineDiscount": 0.0,
+    "paymentsTotal": 135827.0,
     "deliveryTotal": 0.0,
     "assuredTotal": 1297.0,
     "freightCarrierTotal": 0.0,
@@ -671,6 +773,22 @@ Campos por item:
       "warehouse": null,
       "warehouseStatus": null,
       "notes": null
+    }
+  ],
+  "payments": [
+    {
+      "paymentId": 34049,
+      "folio": "PAY-0726-000010",
+      "paymentDate": "2026-07-21T00:00:00",
+      "amount": 135827.0,
+      "paymentFormCode": "01",
+      "paymentForm": "Efectivo",
+      "statusId": 29,
+      "statusRaw": "Valido",
+      "status": "VALID",
+      "reference": null,
+      "paymentType": "payment",
+      "createdAt": "2026-07-21T16:36:06.54"
     }
   ]
 }
