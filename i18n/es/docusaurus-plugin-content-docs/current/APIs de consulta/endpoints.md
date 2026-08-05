@@ -793,3 +793,142 @@ Campos por item:
   ]
 }
 ```
+
+## 8. Pagos (endpoint en ingles)
+
+Registra pagos en BambooERP (`Payments`), la misma tabla que escribe el ERP cuando se sube un comprobante. Tambien expone un endpoint de lectura para recuperar el pago por id.
+
+:::info Idioma
+Esta API esta completamente **en ingles** — rutas, nombres de campos y valores de estado — porque la maneja el equipo de China, igual que `6.4` y `7`. Los demas endpoints se mantienen en espanol.
+:::
+
+### Como se registra un pago
+
+El pago se crea **pendiente de validacion**: estatus `4` (PENDIENTE) y todavia sin monto. El monto y el estatus final (`29` Valido / `30` Rechazado) los asigna despues quien lo valida dentro del ERP. Aun asi puedes mandar `amount` desde el alta, y `statusId` si necesitas cambiar el valor por defecto.
+
+Hay dos cosas que hace la base de datos por si sola, asi que **no** van en la peticion:
+
+| Lo hace | Que hace |
+| --- | --- |
+| Trigger `trg_GenerarFolioPayments` | Genera el `folio` con formato `PAY-MMYY-NNNNNN`, consecutivo por mes. Por eso el `folio` no se manda en el body. |
+| Trigger `trg_AfterInsert_Payments_InsertRelation` | Relaciona el pago con la venta en `rel_quotes_to_payments` cuando se manda `saleFolio`. |
+
+:::warning Mandar `saleFolio` mueve la venta
+Cuando el pago se relaciona con una venta, la base de datos tambien mueve esa venta a estatus `29`. Omite `saleFolio` si solo quieres registrar el pago sin tocar la venta.
+:::
+
+La empresa receptora tampoco se manda: se deriva de la cuenta bancaria.
+
+```text
+bankId -> bancos.id
+bancos.id_origen -> origen_cuenta.id   (accountId en la respuesta)
+```
+
+Cada estatus se regresa por duplicado, igual que en `7`: `statusRaw` es el valor tal cual esta en BambooERP (en espanol) y `status` es ese mismo valor normalizado a `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` o `UNKNOWN`.
+
+### 8.1 Registrar pago
+
+```http
+POST https://bamboonetapi.ddns.net/api/payments
+```
+
+| Campo | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `customerCode` | string | Si | Cliente al que pertenece el pago (`customers.customer_code`). Max 50 caracteres. |
+| `bankId` | integer | Si | Cuenta bancaria donde se deposito (`bancos.id`). Debe existir y no estar deshabilitada. |
+| `paymentFormId` | integer | Si | Forma de pago (`sat_FormaPago.ID`). Ejemplo: `3` = transferencia. |
+| `uploadedById` | integer | Si | Usuario que registra el pago (`catUsers.idUsuario`). |
+| `paymentDate` | date | No | Fecha del pago. Por defecto la fecha de hoy. |
+| `amount` | decimal | No | Monto. Debe ser mayor a cero cuando se manda. Se deja vacio hasta la validacion, igual que en el ERP. |
+| `reference` | string | No | Referencia bancaria de la transferencia o deposito. Max 250 caracteres. |
+| `paymentType` | string | No | `payment` (default), `credit` o `advance`. |
+| `paymentFilePath` | string | No | Ruta del archivo del comprobante. Max 250 caracteres. |
+| `saleFolio` | string | No | Folio de la venta a la que se aplica el pago (`quotation.billCode`). Ver la advertencia de arriba. |
+| `sellerId` | integer | No | Vendedor al que se acredita el pago (`catUsers.idUsuario`). |
+| `departmentId` | integer | No | Sucursal a la que pertenece el pago (`departments.id`). Por defecto la sucursal de `uploadedById`. |
+| `statusId` | integer | No | Estatus con el que se crea el pago (`catEstatus.idEstatus`). Por defecto `4` (PENDIENTE). |
+| `comentary` | string | No | Comentario. Max 1500 caracteres. |
+| `observations` | string | No | Observaciones. Max 500 caracteres. |
+
+Body de la peticion:
+
+```json
+{
+  "customerCode": "SIN2A100652",
+  "paymentDate": "2026-08-05",
+  "bankId": 7,
+  "paymentFormId": 3,
+  "amount": 504.70,
+  "reference": "0123456789",
+  "paymentType": "payment",
+  "paymentFilePath": "comprobante-1785955090.jpeg",
+  "saleFolio": "2608-00012",
+  "uploadedById": 426,
+  "sellerId": 123,
+  "comentary": "Transferencia recibida"
+}
+```
+
+Respuesta — `201 Created`. Regresa el pago tal cual quedo guardado, incluyendo el `folio` que genero la base de datos.
+
+```json
+{
+  "paymentId": 34076,
+  "folio": "PAY-0826-000024",
+  "customerCode": "SIN2A100652",
+  "customer": "BAUDELIO GONZALEZ VAZQUEZ",
+  "paymentDate": "2026-08-05T00:00:00",
+  "amount": 504.70,
+  "paymentFormId": 3,
+  "paymentFormCode": "03",
+  "paymentForm": "Transferencia electronica de fondos",
+  "accountId": 3,
+  "account": "XIAN INTERNATIONAL SA DE CV",
+  "bankId": 7,
+  "bank": "BBVA",
+  "bankAccountNumber": "0124482190",
+  "statusId": 4,
+  "statusRaw": "PENDIENTE",
+  "status": "PENDING",
+  "reference": "0123456789",
+  "paymentType": "payment",
+  "saleId": 79021,
+  "saleFolio": "2608-00012",
+  "departmentId": 16,
+  "department": "Sucursal Ramon Corona",
+  "uploadedById": 426,
+  "sellerId": 123,
+  "paymentFilePath": "comprobante-1785955090.jpeg",
+  "comentary": "Transferencia recibida",
+  "observations": null,
+  "createdAt": "2026-08-05T13:03:30.61"
+}
+```
+
+Todas las referencias se validan contra BambooERP antes de insertar el pago. Si alguna no existe, no se escribe nada y la API regresa `400` con el motivo:
+
+```json
+{ "message": "Customer 'NO-EXISTE' not found." }
+```
+
+| Caso | Mensaje |
+| --- | --- |
+| Cliente no encontrado | `Customer '{customerCode}' not found.` |
+| Cuenta bancaria no encontrada | `Bank account {bankId} not found.` |
+| Cuenta bancaria deshabilitada | `Bank account {bankId} is disabled.` |
+| Forma de pago no encontrada | `Payment form {paymentFormId} not found.` |
+| Usuario, vendedor, departamento o estatus no encontrado | `{Entidad} {id} not found.` |
+| Folio de venta no encontrado | `Sale '{saleFolio}' not found.` |
+| Tipo de pago invalido | `paymentType must be one of: payment, credit, advance.` |
+
+### 8.2 Consultar pago
+
+Obtiene un pago por id, con la misma estructura de la respuesta anterior. Regresa `404` si no existe un pago con ese id.
+
+```http
+GET https://bamboonetapi.ddns.net/api/payments/{id}
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `id` | integer | Si | Id del pago (`Payments.Id`). Ejemplo: `34076` |
