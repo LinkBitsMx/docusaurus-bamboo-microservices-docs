@@ -826,6 +826,33 @@ bancos.id_origen -> origen_cuenta.id   (accountId en la respuesta)
 
 Cada estatus se regresa por duplicado, igual que en `7`: `statusRaw` es el valor tal cual esta en BambooERP (en espanol) y `status` es ese mismo valor normalizado a `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` o `UNKNOWN`.
 
+### Campos de Kingdee
+
+El pago puede traer los campos del documento de recarga de Kingdee (充值单). Seis de ellos ya salen de lo que el pago guarda hoy y **no** se mandan: se derivan de los catalogos de BambooERP. El resto son identificadores propios de Kingdee, y como Bamboo no tiene catalogo contra el cual resolverlos, se guardan en `Payments` tal cual llegan.
+
+| Campo Kingdee | Campo del body | De donde sale |
+| --- | --- | --- |
+| `FBillNo` (单据编号) | `kingdeeBillNo` | Se manda. No sustituye a `folio`, que lo sigue generando la base de datos. |
+| `FDate` (单据日期) | — | `paymentDate` |
+| `FBizOrgId` / `FBizOrg` (业务组织) | `bizOrgId` / `bizOrgCode` | Se manda |
+| `FSETTLEORGID` / `FSETTLEORG` (结算组织) | `settleOrgId` / `settleOrgCode` | Se manda |
+| `FBranchID` / `Fbranch` (充值门店) | — | `departmentId` → `departments.branchId` → `starnet_branches.id` / `.code` |
+| `FSalerID` / `FSaler` (业务员) | — | `sellerId` → `catUsers.code_seller`, guardado como `kingdeeId_kingdeeCode_branchId` |
+| `FCashierID` / `FCashier` (收银员) | `cashierId` / `cashierCode` | Se manda. Es el cajero de Kingdee, que no necesariamente es `uploadedById`. |
+| `FCustomerID` / `FCustomer` (客户) | — | `customerCode` → `customers.customer_id` / `customer_code` |
+| `FSETTLECURRENCYID` / `FSETTLECURRENCY` (结算币别) | `settleCurrencyId` / `settleCurrencyCode` | Se manda |
+| `FNote` (备注) | — | `comentary` |
+| `FCardID` / `FCard` (卡号) | `cardId` / `cardNumber` | Se manda |
+| `FMemberID` / `FMember` (会员卡号) | `memberId` / `memberCardNumber` | Se manda |
+| `FAccountID` / `FAccount` (账户) | `kingdeeAccountId` / `kingdeeAccountCode` | Se manda. Es la cuenta de Kingdee, no el `accountId` de la respuesta, que es la empresa receptora. |
+| `FRechargeAmount` (充值金额) | `rechargeAmount` | Se manda. Es lo que se abona a la tarjeta, a diferencia de `amount`, que es lo que se cobro. |
+| `FReceiveTypeID` / `FReceiveType` (收款方式) | `receiveTypeId` / `receiveTypeCode` | Se manda. Es la forma de cobro de Kingdee, independiente de `paymentFormId` (la forma de pago del SAT). |
+| `FReceiveCurrencyID` / `FReceiveCurrency` (收款币别) | `receiveCurrencyId` / `receiveCurrencyCode` | Se manda. Por defecto toma la moneda de liquidacion. |
+| `FReceiveAmt` (收款金额) | — | `amount` |
+| `FExchangeRate` (汇率) | `exchangeRate` | Se manda. Por defecto `1` mientras ambas monedas coincidan; **obligatorio cuando difieren**, porque BambooERP no tiene tabla de tipo de cambio. |
+
+Todos son opcionales, asi que el body que ya manda el ERP sigue funcionando sin cambios. La respuesta incluye el bloque `kingdee` con el documento armado y los nombres `F*` escritos exactamente como los espera Kingdee (es la unica parte de la API que no va en `camelCase`).
+
 ### 8.1 Registrar pago
 
 ```http
@@ -850,6 +877,8 @@ POST https://bamboonetapi.ddns.net/api/payments
 | `comentary` | string | No | Comentario. Max 1500 caracteres. |
 | `observations` | string | No | Observaciones. Max 500 caracteres. |
 
+Mas los campos de Kingdee descritos arriba, todos opcionales: `kingdeeBillNo`, `bizOrgId`, `bizOrgCode`, `settleOrgId`, `settleOrgCode`, `cashierId`, `cashierCode`, `kingdeeAccountId`, `kingdeeAccountCode`, `receiveTypeId`, `receiveTypeCode`, `settleCurrencyId`, `settleCurrencyCode`, `receiveCurrencyId`, `receiveCurrencyCode`, `exchangeRate`, `cardId`, `cardNumber`, `memberId`, `memberCardNumber` y `rechargeAmount`.
+
 Body de la peticion:
 
 ```json
@@ -865,7 +894,29 @@ Body de la peticion:
   "saleFolio": "2608-00012",
   "uploadedById": 426,
   "sellerId": 123,
-  "comentary": "Transferencia recibida"
+  "comentary": "Transferencia recibida",
+
+  "kingdeeBillNo": "SKCZD000123",
+  "bizOrgId": 847244,
+  "bizOrgCode": "801",
+  "settleOrgId": 847244,
+  "settleOrgCode": "801",
+  "cashierId": 1772,
+  "cashierCode": "GW000041",
+  "kingdeeAccountId": 100012,
+  "kingdeeAccountCode": "BANK001",
+  "receiveTypeId": 5,
+  "receiveTypeCode": "SKFS03",
+  "settleCurrencyId": 1,
+  "settleCurrencyCode": "MXN",
+  "receiveCurrencyId": 1,
+  "receiveCurrencyCode": "MXN",
+  "exchangeRate": 1.0,
+  "cardId": 5001,
+  "cardNumber": "6234567890",
+  "memberId": 8801,
+  "memberCardNumber": "VIP00034",
+  "rechargeAmount": 504.70
 }
 ```
 
@@ -901,7 +952,39 @@ Respuesta — `201 Created`. Regresa el pago tal cual quedo guardado, incluyendo
   "paymentFilePath": "comprobante-1785955090.jpeg",
   "comentary": "Transferencia recibida",
   "observations": null,
-  "createdAt": "2026-08-05T13:03:30.61"
+  "createdAt": "2026-08-05T13:03:30.61",
+  "kingdee": {
+    "FBillNo": "SKCZD000123",
+    "FDate": "2026-08-05T00:00:00",
+    "FBizOrgId": 847244,
+    "FBizOrg": "801",
+    "FSETTLEORGID": 847244,
+    "FSETTLEORG": "801",
+    "FBranchID": 1148514,
+    "Fbranch": "801.10.04",
+    "FSalerID": 1772,
+    "FSaler": "GW000041",
+    "FCashierID": 1772,
+    "FCashier": "GW000041",
+    "FCustomerID": 5966485,
+    "FCustomer": "SIN2A100652",
+    "FSETTLECURRENCYID": 1,
+    "FSETTLECURRENCY": "MXN",
+    "FNote": "Transferencia recibida",
+    "FCardID": 5001,
+    "FCard": "6234567890",
+    "FMemberID": 8801,
+    "FMember": "VIP00034",
+    "FAccountID": 100012,
+    "FAccount": "BANK001",
+    "FRechargeAmount": 504.70,
+    "FReceiveTypeID": 5,
+    "FReceiveType": "SKFS03",
+    "FReceiveCurrencyID": 1,
+    "FReceiveCurrency": "MXN",
+    "FReceiveAmt": 504.70,
+    "FExchangeRate": 1.0
+  }
 }
 ```
 
@@ -920,6 +1003,7 @@ Todas las referencias se validan contra BambooERP antes de insertar el pago. Si 
 | Usuario, vendedor, departamento o estatus no encontrado | `{Entidad} {id} not found.` |
 | Folio de venta no encontrado | `Sale '{saleFolio}' not found.` |
 | Tipo de pago invalido | `paymentType must be one of: payment, credit, advance.` |
+| Monedas distintas sin tipo de cambio | `exchangeRate is required when settleCurrencyCode and receiveCurrencyCode differ.` |
 
 ### 8.2 Consultar pago
 

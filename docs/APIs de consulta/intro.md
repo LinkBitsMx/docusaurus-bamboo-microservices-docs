@@ -21,7 +21,7 @@ These APIs let external systems query BambooERP information without accessing th
 | Warranty query | Products and status associated with a warranty ticket folio |
 | Pre-orders | Submit unconfirmed quotation requests and review them with per-warehouse stock detail |
 | Sales | Detail, totals, seller, payments and per-warehouse status of the sales registered in BambooERP |
-| Payments | Register a payment in BambooERP, optionally applied to a sale |
+| Payments | Register a payment in BambooERP, optionally applied to a sale and carrying the fields of the Kingdee document |
 
 ## Base URL
 

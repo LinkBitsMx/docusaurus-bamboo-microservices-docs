@@ -21,7 +21,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Consulta de garantia | Productos y estatus asociados a un folio de garantia |
 | Pre-ordenes | Enviar solicitudes de cotizacion sin confirmar y revisarlas con detalle de stock por almacen |
 | Ventas | Detalle, totales, vendedor, pagos y estatus por almacen de las ventas registradas en BambooERP |
-| Pagos | Registrar un pago en BambooERP, opcionalmente aplicado a una venta |
+| Pagos | Registrar un pago en BambooERP, opcionalmente aplicado a una venta y con los campos del documento de Kingdee |
 
 ## Base URL
 

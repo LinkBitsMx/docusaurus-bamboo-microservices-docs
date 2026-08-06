@@ -826,6 +826,33 @@ bancos.id_origen -> origen_cuenta.id   (accountId in the response)
 
 Every status is returned twice, same as in `7`: `statusRaw` is the value as stored in BambooERP (in Spanish) and `status` is that value normalized to `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` or `UNKNOWN`.
 
+### Kingdee fields
+
+The payment can carry the fields of the Kingdee recharge document (充值单). Six of them are already covered by what the payment stores and must **not** be sent — they are derived from BambooERP catalogs. The rest are Kingdee's own identifiers: BambooERP has no catalog to resolve them against, so they are stored on `Payments` exactly as they arrive.
+
+| Kingdee field | Body field | Where it comes from |
+| --- | --- | --- |
+| `FBillNo` (单据编号) | `kingdeeBillNo` | Sent. It does not replace `folio`, which the database keeps generating. |
+| `FDate` (单据日期) | — | `paymentDate` |
+| `FBizOrgId` / `FBizOrg` (业务组织) | `bizOrgId` / `bizOrgCode` | Sent |
+| `FSETTLEORGID` / `FSETTLEORG` (结算组织) | `settleOrgId` / `settleOrgCode` | Sent |
+| `FBranchID` / `Fbranch` (充值门店) | — | `departmentId` → `departments.branchId` → `starnet_branches.id` / `.code` |
+| `FSalerID` / `FSaler` (业务员) | — | `sellerId` → `catUsers.code_seller`, stored as `kingdeeId_kingdeeCode_branchId` |
+| `FCashierID` / `FCashier` (收银员) | `cashierId` / `cashierCode` | Sent. The cashier in Kingdee, which is not necessarily `uploadedById`. |
+| `FCustomerID` / `FCustomer` (客户) | — | `customerCode` → `customers.customer_id` / `customer_code` |
+| `FSETTLECURRENCYID` / `FSETTLECURRENCY` (结算币别) | `settleCurrencyId` / `settleCurrencyCode` | Sent |
+| `FNote` (备注) | — | `comentary` |
+| `FCardID` / `FCard` (卡号) | `cardId` / `cardNumber` | Sent |
+| `FMemberID` / `FMember` (会员卡号) | `memberId` / `memberCardNumber` | Sent |
+| `FAccountID` / `FAccount` (账户) | `kingdeeAccountId` / `kingdeeAccountCode` | Sent. Kingdee's account — unrelated to `accountId` in the response, which is the receiving company. |
+| `FRechargeAmount` (充值金额) | `rechargeAmount` | Sent. What is credited to the card, as opposed to `amount`, which is what was collected. |
+| `FReceiveTypeID` / `FReceiveType` (收款方式) | `receiveTypeId` / `receiveTypeCode` | Sent. Kingdee's receipt method, independent from `paymentFormId` (the SAT payment form). |
+| `FReceiveCurrencyID` / `FReceiveCurrency` (收款币别) | `receiveCurrencyId` / `receiveCurrencyCode` | Sent. Defaults to the settlement currency. |
+| `FReceiveAmt` (收款金额) | — | `amount` |
+| `FExchangeRate` (汇率) | `exchangeRate` | Sent. Defaults to `1` while both currencies match; **required when they differ**, since BambooERP has no exchange rate table. |
+
+All of them are optional, so the body the ERP already sends keeps working unchanged. The response carries a `kingdee` block with the document assembled and the `F*` names spelled exactly as Kingdee expects them (that block is the only part of the API that is not `camelCase`).
+
 ### 8.1 Register payment
 
 ```http
@@ -850,6 +877,8 @@ POST http://pfconexionlinkbits.ddns.net:50780/api/payments
 | `comentary` | string | No | Comment. Max 1500 chars. |
 | `observations` | string | No | Observations. Max 500 chars. |
 
+Plus the Kingdee fields described above, all optional: `kingdeeBillNo`, `bizOrgId`, `bizOrgCode`, `settleOrgId`, `settleOrgCode`, `cashierId`, `cashierCode`, `kingdeeAccountId`, `kingdeeAccountCode`, `receiveTypeId`, `receiveTypeCode`, `settleCurrencyId`, `settleCurrencyCode`, `receiveCurrencyId`, `receiveCurrencyCode`, `exchangeRate`, `cardId`, `cardNumber`, `memberId`, `memberCardNumber` and `rechargeAmount`.
+
 Request body:
 
 ```json
@@ -865,7 +894,29 @@ Request body:
   "saleFolio": "2608-00012",
   "uploadedById": 426,
   "sellerId": 123,
-  "comentary": "Transferencia recibida"
+  "comentary": "Transferencia recibida",
+
+  "kingdeeBillNo": "SKCZD000123",
+  "bizOrgId": 847244,
+  "bizOrgCode": "801",
+  "settleOrgId": 847244,
+  "settleOrgCode": "801",
+  "cashierId": 1772,
+  "cashierCode": "GW000041",
+  "kingdeeAccountId": 100012,
+  "kingdeeAccountCode": "BANK001",
+  "receiveTypeId": 5,
+  "receiveTypeCode": "SKFS03",
+  "settleCurrencyId": 1,
+  "settleCurrencyCode": "MXN",
+  "receiveCurrencyId": 1,
+  "receiveCurrencyCode": "MXN",
+  "exchangeRate": 1.0,
+  "cardId": 5001,
+  "cardNumber": "6234567890",
+  "memberId": 8801,
+  "memberCardNumber": "VIP00034",
+  "rechargeAmount": 504.70
 }
 ```
 
@@ -901,7 +952,39 @@ Response — `201 Created`. Returns the payment as it was persisted, including t
   "paymentFilePath": "comprobante-1785955090.jpeg",
   "comentary": "Transferencia recibida",
   "observations": null,
-  "createdAt": "2026-08-05T13:03:30.61"
+  "createdAt": "2026-08-05T13:03:30.61",
+  "kingdee": {
+    "FBillNo": "SKCZD000123",
+    "FDate": "2026-08-05T00:00:00",
+    "FBizOrgId": 847244,
+    "FBizOrg": "801",
+    "FSETTLEORGID": 847244,
+    "FSETTLEORG": "801",
+    "FBranchID": 1148514,
+    "Fbranch": "801.10.04",
+    "FSalerID": 1772,
+    "FSaler": "GW000041",
+    "FCashierID": 1772,
+    "FCashier": "GW000041",
+    "FCustomerID": 5966485,
+    "FCustomer": "SIN2A100652",
+    "FSETTLECURRENCYID": 1,
+    "FSETTLECURRENCY": "MXN",
+    "FNote": "Transferencia recibida",
+    "FCardID": 5001,
+    "FCard": "6234567890",
+    "FMemberID": 8801,
+    "FMember": "VIP00034",
+    "FAccountID": 100012,
+    "FAccount": "BANK001",
+    "FRechargeAmount": 504.70,
+    "FReceiveTypeID": 5,
+    "FReceiveType": "SKFS03",
+    "FReceiveCurrencyID": 1,
+    "FReceiveCurrency": "MXN",
+    "FReceiveAmt": 504.70,
+    "FExchangeRate": 1.0
+  }
 }
 ```
 
@@ -920,6 +1003,7 @@ Every reference is checked against BambooERP before the payment is inserted. If 
 | User, seller, department or status not found | `{Entity} {id} not found.` |
 | Sale folio not found | `Sale '{saleFolio}' not found.` |
 | Invalid payment type | `paymentType must be one of: payment, credit, advance.` |
+| Currencies differ without a rate | `exchangeRate is required when settleCurrencyCode and receiveCurrencyCode differ.` |
 
 ### 8.2 Get payment
 
