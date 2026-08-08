@@ -101,3 +101,15 @@ The `paymentFormCode` is the SAT code from `sat_FormaPago`: `01` cash, `02` cheq
 ### Why do some sale items have no warehouse?
 
 Because they are service lines (`isService: true`), such as `ENVIO %` or the freight carrier. They are not fulfilled by any warehouse, so they come back with `warehouseId: null` and `warehouseStatus: null`, and they are summed in `servicesTotal` instead of `productsSubtotal`.
+
+### How do I get the payments that were rejected, validated, or are still being validated?
+
+With `GET /payments` and the status in English: `status=REJECTED`, `status=VALID`, `status=IN_PROCESS` — or several at once, comma separated (`status=REJECTED,IN_PROCESS`). Omitting `status` returns every payment.
+
+The response carries the full record of each payment plus a `summary` with the count and amount of each status **across the whole filter**, not just the page being read. A status outside the published list returns `400` instead of an empty page, so a typo is never read as "there are none".
+
+### Why do `PENDING` and `IN_PROCESS` payments add up to zero?
+
+Because the amount is not part of registering a payment: the ERP fills `amount` when someone validates it. A payment that is still pending or being validated exists, has a folio and a customer, and has no amount yet — so it counts in `summary` but adds `0.00`.
+
+Only `VALID` and `REJECTED` payments carry amounts. Use `count` rather than `amount` to size those two statuses.

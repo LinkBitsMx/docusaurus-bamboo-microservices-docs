@@ -101,3 +101,15 @@ El `paymentFormCode` es el codigo SAT de `sat_FormaPago`: `01` efectivo, `02` ch
 ### Por que algunos items de una venta no traen almacen?
 
 Porque son renglones de servicio (`isService: true`), como `ENVIO %` o la fletera. No los surte ningun almacen, asi que regresan con `warehouseId: null` y `warehouseStatus: null`, y se suman en `servicesTotal` en lugar de `productsSubtotal`.
+
+### Como obtengo los pagos rechazados, validados o en proceso de validacion?
+
+Con `GET /payments` y el estatus en ingles: `status=REJECTED`, `status=VALID`, `status=IN_PROCESS` — o varios a la vez separados por coma (`status=REJECTED,IN_PROCESS`). Si se omite `status`, regresan todos.
+
+La respuesta trae el registro completo de cada pago mas un `summary` con el conteo y el importe de cada estatus **sobre todo el filtro**, no solo sobre la pagina que se esta leyendo. Un estatus fuera de la lista publicada regresa `400` en vez de una pagina vacia, para que un typo nunca se lea como "no hay ninguno".
+
+### Por que los pagos `PENDING` e `IN_PROCESS` suman cero?
+
+Porque el importe no forma parte del alta del pago: el ERP llena `amount` cuando alguien lo valida. Un pago pendiente o en proceso de validacion existe, tiene folio y cliente, y todavia no tiene importe — por eso cuenta en `summary` pero suma `0.00`.
+
+Solo los pagos `VALID` y `REJECTED` traen importes. Para dimensionar esos dos estatus usa `count` en lugar de `amount`.

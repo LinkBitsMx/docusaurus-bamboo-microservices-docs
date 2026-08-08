@@ -1016,3 +1016,112 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/payments/{id}
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | integer | Yes | Payment id (`Payments.Id`). Example: `34076` |
+
+### 8.3 List payments by status
+
+Paged list of payments, newest first. The status is **filtered and published in English**, never with the Spanish name BambooERP stores in `catEstatus`.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/payments
+```
+
+| `status` | `catEstatus` | What it is |
+| --- | --- | --- |
+| `VALID` | `29` Valido | Payment validated |
+| `REJECTED` | `30` Rechazado | Payment rejected |
+| `PENDING` | `4` PENDIENTE | Registered, not reviewed yet — the status a payment is born with |
+| `IN_PROCESS` | `17` EN PROCESO | Being validated |
+| `CANCELLED` | `8` CANCELADO | Cancelled |
+
+Several statuses can be asked for at once, comma separated. Omitting `status` returns every one of them.
+
+```http
+GET .../api/payments?status=REJECTED
+GET .../api/payments?status=REJECTED,IN_PROCESS
+GET .../api/payments?status=VALID&startDate=2026-08-01&endDate=2026-08-07
+GET .../api/payments?status=VALID&customerCode=SLP2A101255&pageSize=100
+```
+
+:::note A wrong status is an error, not an empty page
+A value outside the table returns `400` with the list of valid ones, so a typo cannot be read as "there are none":
+
+```json
+{ "message": "Unknown status: RECHAZADO. status must be one of: VALID, REJECTED, PENDING, IN_PROCESS, CANCELLED." }
+```
+:::
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | string | No | One or more statuses in English, comma separated. Example: `REJECTED,IN_PROCESS` |
+| `statusId` | integer | No | Status by internal id (`catEstatus.idEstatus`), for callers working with the id. Combines with `status`. |
+| `customerCode` | string | No | Exact customer code (`customers.customer_code`). Example: `SLP2A101255` |
+| `folio` | string | No | Partial match on the payment folio. Example: `PAY-0826` |
+| `saleFolio` | string | No | Folio of the sale the payment was applied to (`quotation.billCode`). Example: `2608-00022` |
+| `startDate` | date | No | Lower bound of `paymentDate`. Example: `2026-08-01` |
+| `endDate` | date | No | Upper bound of `paymentDate`. If sent without a time part, the whole day is included. |
+| `paymentFormId` | integer | No | SAT payment form (`sat_FormaPago.ID`). |
+| `bankId` | integer | No | Bank account (`bancos.id`). |
+| `departmentId` | integer | No | Branch or department of the payment (`departments.id`). |
+| `sellerId` | integer | No | Salesperson the payment is credited to (`catUsers.idUsuario`). |
+| `paymentType` | string | No | `payment`, `credit` or `advance`. |
+| `page` | integer | No | Page number. Default `1`. |
+| `pageSize` | integer | No | Page size. Default `50`, maximum `200`. |
+
+:::note
+All filters travel in the **query string**. This is a `GET`: filters sent as a JSON body are ignored, and the request comes back as if it had no filters at all.
+:::
+
+### Response
+
+Every entry in `payments[]` is the **full payment record**, identical to the one `8.2` returns — the `kingdee` block included. On top of that, `summary` breaks down **everything the filter matched**, not just the current page, and `totalAmount` is the sum of those amounts.
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 1002,
+  "totalPages": 21,
+  "totalAmount": 6132011.20,
+  "summary": [
+    {
+      "statusId": 17,
+      "statusRaw": "EN PROCESO",
+      "status": "IN_PROCESS",
+      "count": 5,
+      "amount": 0.00
+    },
+    {
+      "statusId": 30,
+      "statusRaw": "Rechazado",
+      "status": "REJECTED",
+      "count": 997,
+      "amount": 6132011.20
+    }
+  ],
+  "payments": [
+    {
+      "paymentId": 34091,
+      "folio": "PAY-0826-000039",
+      "customerCode": "SLP2A101255",
+      "customer": "JESUS ADIEL DOMINGO MONSIVAIS",
+      "paymentDate": "2026-08-07T00:00:00",
+      "amount": 6.00,
+      "paymentFormId": 1,
+      "paymentFormCode": "01",
+      "paymentForm": "Efectivo",
+      "statusId": 29,
+      "statusRaw": "Valido",
+      "status": "VALID",
+      "saleId": 79032,
+      "saleFolio": "2608-00022",
+      "kingdee": { "FBillNo": null, "FDate": "2026-08-07T00:00:00" }
+    }
+  ]
+}
+```
+
+:::warning `amount` is empty until the payment is validated
+The ERP fills the amount when someone validates the payment, so `PENDING` and `IN_PROCESS` add up to `0.00` in `summary` even when they do have payments. That is the real data, not a bug in the sum — only `VALID` and `REJECTED` carry amounts.
+:::
+
+`summary` only lists the statuses actually present in the filtered set: asking for `status=REJECTED` returns a single entry, and a filter matching nothing returns `totalRecords: 0` with `summary` and `payments` empty.

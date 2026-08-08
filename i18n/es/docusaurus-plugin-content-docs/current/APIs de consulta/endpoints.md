@@ -1016,3 +1016,112 @@ GET https://bamboonetapi.ddns.net/api/payments/{id}
 | Parametro | Tipo | Requerido | Descripcion |
 | --- | --- | --- | --- |
 | `id` | integer | Si | Id del pago (`Payments.Id`). Ejemplo: `34076` |
+
+### 8.3 Listar pagos por estatus
+
+Listado paginado de pagos, del mas nuevo al mas viejo. El estatus se **filtra y se publica en ingles**, nunca con el nombre en espanol que BambooERP guarda en `catEstatus`.
+
+```http
+GET https://bamboonetapi.ddns.net/api/payments
+```
+
+| `status` | `catEstatus` | Que es |
+| --- | --- | --- |
+| `VALID` | `29` Valido | Pago validado |
+| `REJECTED` | `30` Rechazado | Pago rechazado |
+| `PENDING` | `4` PENDIENTE | Registrado, todavia sin revisar — es el estatus con el que nace un pago |
+| `IN_PROCESS` | `17` EN PROCESO | En proceso de validacion |
+| `CANCELLED` | `8` CANCELADO | Cancelado |
+
+Se pueden pedir varios a la vez separados por coma. Si se omite `status`, entran todos.
+
+```http
+GET .../api/payments?status=REJECTED
+GET .../api/payments?status=REJECTED,IN_PROCESS
+GET .../api/payments?status=VALID&startDate=2026-08-01&endDate=2026-08-07
+GET .../api/payments?status=VALID&customerCode=SLP2A101255&pageSize=100
+```
+
+:::note Un estatus mal escrito es un error, no una pagina vacia
+Un valor fuera de la tabla regresa `400` con la lista de los validos, para que un typo no se lea como "no hay ninguno":
+
+```json
+{ "message": "Unknown status: RECHAZADO. status must be one of: VALID, REJECTED, PENDING, IN_PROCESS, CANCELLED." }
+```
+:::
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `status` | string | No | Uno o varios estatus en ingles, separados por coma. Ejemplo: `REJECTED,IN_PROCESS` |
+| `statusId` | integer | No | Estatus por id interno (`catEstatus.idEstatus`), para quien trabaje con el id. Se combina con `status`. |
+| `customerCode` | string | No | Codigo exacto del cliente (`customers.customer_code`). Ejemplo: `SLP2A101255` |
+| `folio` | string | No | Coincidencia parcial sobre el folio del pago. Ejemplo: `PAY-0826` |
+| `saleFolio` | string | No | Folio de la venta a la que se aplico el pago (`quotation.billCode`). Ejemplo: `2608-00022` |
+| `startDate` | date | No | Limite inferior de `paymentDate`. Ejemplo: `2026-08-01` |
+| `endDate` | date | No | Limite superior de `paymentDate`. Si se manda sin hora, se incluye el dia completo. |
+| `paymentFormId` | integer | No | Forma de pago SAT (`sat_FormaPago.ID`). |
+| `bankId` | integer | No | Cuenta bancaria (`bancos.id`). |
+| `departmentId` | integer | No | Sucursal o departamento del pago (`departments.id`). |
+| `sellerId` | integer | No | Vendedor al que se acredita el pago (`catUsers.idUsuario`). |
+| `paymentType` | string | No | `payment`, `credit` o `advance`. |
+| `page` | integer | No | Numero de pagina. Default `1`. |
+| `pageSize` | integer | No | Tamano de pagina. Default `50`, maximo `200`. |
+
+:::note
+Todos los filtros viajan en el **query string**. Esto es un `GET`: los filtros enviados como cuerpo JSON se ignoran y la peticion regresa como si no tuviera filtros.
+:::
+
+### Respuesta
+
+Cada elemento de `payments[]` es el **registro completo del pago**, identico al que regresa `8.2` — incluido el bloque `kingdee`. Ademas, `summary` desglosa **todo lo que matcheo el filtro**, no solo la pagina actual, y `totalAmount` es la suma de esos importes.
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 1002,
+  "totalPages": 21,
+  "totalAmount": 6132011.20,
+  "summary": [
+    {
+      "statusId": 17,
+      "statusRaw": "EN PROCESO",
+      "status": "IN_PROCESS",
+      "count": 5,
+      "amount": 0.00
+    },
+    {
+      "statusId": 30,
+      "statusRaw": "Rechazado",
+      "status": "REJECTED",
+      "count": 997,
+      "amount": 6132011.20
+    }
+  ],
+  "payments": [
+    {
+      "paymentId": 34091,
+      "folio": "PAY-0826-000039",
+      "customerCode": "SLP2A101255",
+      "customer": "JESUS ADIEL DOMINGO MONSIVAIS",
+      "paymentDate": "2026-08-07T00:00:00",
+      "amount": 6.00,
+      "paymentFormId": 1,
+      "paymentFormCode": "01",
+      "paymentForm": "Efectivo",
+      "statusId": 29,
+      "statusRaw": "Valido",
+      "status": "VALID",
+      "saleId": 79032,
+      "saleFolio": "2608-00022",
+      "kingdee": { "FBillNo": null, "FDate": "2026-08-07T00:00:00" }
+    }
+  ]
+}
+```
+
+:::warning `amount` viene vacio hasta que el pago se valida
+El ERP llena el importe cuando alguien valida el pago, por eso `PENDING` e `IN_PROCESS` suman `0.00` en `summary` aunque si tengan pagos. Ese es el dato real, no un error de la suma: solo `VALID` y `REJECTED` traen importes.
+:::
+
+`summary` lista unicamente los estatus presentes en el conjunto filtrado: pedir `status=REJECTED` regresa una sola entrada, y un filtro que no matchea nada regresa `totalRecords: 0` con `summary` y `payments` vacios.
