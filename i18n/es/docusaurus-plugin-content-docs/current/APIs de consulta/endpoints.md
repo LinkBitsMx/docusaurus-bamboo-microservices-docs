@@ -1065,9 +1065,17 @@ GET .../api/payments?status=REJECTED,IN_PROCESS
 GET .../api/payments?status=VALID&startDate=2026-08-01&endDate=2026-08-07
 GET .../api/payments?status=VALID&customerCode=SLP2A101255&pageSize=100
 GET .../api/payments?branchCode=801.10.02&status=VALID
+GET .../api/payments?saleFolio=2608-00022
+GET .../api/payments?kingdeeSaleFolio=XSCKD100949
 GET .../api/payments?saleStartDate=2026-07-01&saleEndDate=2026-07-31
 GET .../api/payments?kingdeeSaleStartDate=2026-05-01&kingdeeSaleEndDate=2026-05-31
 ```
+
+:::note Dos folios de venta, dos filtros
+`saleFolio` es la venta de BambooERP — la que se publica en la respuesta como `saleFolio`. `kingdeeSaleFolio` es el documento generado en Kingdee — el que aparece en `kingdeeSales[].folio`. Son identificadores distintos de la misma operacion comercial, por eso cada uno tiene su propio filtro.
+
+Combinar `kingdeeSaleFolio` con `kingdeeSaleStartDate`/`kingdeeSaleEndDate` exige que **la misma venta** cumpla ambas condiciones: un pago repartido entre varias facturas no entra por tener el folio en una y la fecha en otra.
+:::
 
 :::note Tres rangos de fecha, tres fechas distintas
 `startDate`/`endDate` filtran por **cuando se hizo el pago**, `saleStartDate`/`saleEndDate` por **cuando se registro la venta en BambooERP**, y `kingdeeSaleStartDate`/`kingdeeSaleEndDate` por **cuando se facturo la venta en Kingdee**. Son independientes y se combinan con AND, asi que se puede pedir los pagos cobrados en agosto de ventas facturadas en Kingdee en mayo.
@@ -1089,7 +1097,8 @@ Un valor fuera de la tabla regresa `400` con la lista de los validos, para que u
 | `statusId` | integer | No | Estatus por id interno (`catEstatus.idEstatus`), para quien trabaje con el id. Se combina con `status`. |
 | `customerCode` | string | No | Codigo exacto del cliente (`customers.customer_code`). Ejemplo: `SLP2A101255` |
 | `folio` | string | No | Coincidencia parcial sobre el folio del pago. Ejemplo: `PAY-0826` |
-| `saleFolio` | string | No | Folio de la venta a la que se aplico el pago (`quotation.billCode`). Ejemplo: `2608-00022` |
+| `saleFolio` | string | No | Folio de la venta de **BambooERP** a la que se aplico el pago (`quotation.billCode`). Coincidencia exacta. Ejemplo: `2608-00022` |
+| `kingdeeSaleFolio` | string | No | Folio de la venta tal como se genero en **Kingdee**: `kingdee_sales_invoices.bill_code` (ejemplo: `XSCKD100949`) o `KingDeeSalesPOS.Folio` si es ticket POS (ejemplo: `10040002604109633`). Coincidencia exacta. |
 | `branchCode` | string | No | Sucursal **del pago** (`starnet_branches.code`), via `Payments.DepartmentId` → `departments.branchId`. Es la misma que se publica en `kingdee.Fbranch`. Ejemplo: `801.10.02` |
 | `startDate` | date | No | Limite inferior de la **fecha de pago** (`paymentDate`). Ejemplo: `2026-08-01` |
 | `endDate` | date | No | Limite superior de la **fecha de pago**. Si se manda sin hora, se incluye el dia completo. |

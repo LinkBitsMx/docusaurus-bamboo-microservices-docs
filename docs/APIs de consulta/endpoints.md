@@ -1065,9 +1065,17 @@ GET .../api/payments?status=REJECTED,IN_PROCESS
 GET .../api/payments?status=VALID&startDate=2026-08-01&endDate=2026-08-07
 GET .../api/payments?status=VALID&customerCode=SLP2A101255&pageSize=100
 GET .../api/payments?branchCode=801.10.02&status=VALID
+GET .../api/payments?saleFolio=2608-00022
+GET .../api/payments?kingdeeSaleFolio=XSCKD100949
 GET .../api/payments?saleStartDate=2026-07-01&saleEndDate=2026-07-31
 GET .../api/payments?kingdeeSaleStartDate=2026-05-01&kingdeeSaleEndDate=2026-05-31
 ```
+
+:::note Two sale folios, two filters
+`saleFolio` is the BambooERP sale — the one published in the response as `saleFolio`. `kingdeeSaleFolio` is the document generated in Kingdee — the one in `kingdeeSales[].folio`. They are different identifiers for the same commercial operation, so each has its own filter.
+
+Combining `kingdeeSaleFolio` with `kingdeeSaleStartDate`/`kingdeeSaleEndDate` requires **the same sale** to satisfy both: a payment split across several invoices does not match by having the folio on one and the date on another.
+:::
 
 :::note Three date ranges, three different dates
 `startDate`/`endDate` filter on **when the payment was made**, `saleStartDate`/`saleEndDate` on **when the sale was registered in BambooERP**, and `kingdeeSaleStartDate`/`kingdeeSaleEndDate` on **when the sale was billed in Kingdee**. They are independent and combine with AND, so a query can ask for payments collected in August against sales invoiced in Kingdee in May.
@@ -1089,7 +1097,8 @@ A value outside the table returns `400` with the list of valid ones, so a typo c
 | `statusId` | integer | No | Status by internal id (`catEstatus.idEstatus`), for callers working with the id. Combines with `status`. |
 | `customerCode` | string | No | Exact customer code (`customers.customer_code`). Example: `SLP2A101255` |
 | `folio` | string | No | Partial match on the payment folio. Example: `PAY-0826` |
-| `saleFolio` | string | No | Folio of the sale the payment was applied to (`quotation.billCode`). Example: `2608-00022` |
+| `saleFolio` | string | No | Folio of the **BambooERP** sale the payment was applied to (`quotation.billCode`). Exact match. Example: `2608-00022` |
+| `kingdeeSaleFolio` | string | No | Folio of the sale as generated in **Kingdee**: `kingdee_sales_invoices.bill_code` (example: `XSCKD100949`) or `KingDeeSalesPOS.Folio` for a POS ticket (example: `10040002604109633`). Exact match. |
 | `branchCode` | string | No | Branch **of the payment** (`starnet_branches.code`), reached through `Payments.DepartmentId` → `departments.branchId`. Same branch published as `kingdee.Fbranch`. Example: `801.10.02` |
 | `startDate` | date | No | Lower bound of the **payment date** (`paymentDate`). Example: `2026-08-01` |
 | `endDate` | date | No | Upper bound of the **payment date**. If sent without a time part, the whole day is included. |
