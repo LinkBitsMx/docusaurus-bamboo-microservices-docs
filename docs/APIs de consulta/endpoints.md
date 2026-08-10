@@ -984,9 +984,33 @@ Response — `201 Created`. Returns the payment as it was persisted, including t
     "FReceiveCurrency": "MXN",
     "FReceiveAmt": 504.70,
     "FExchangeRate": 1.0
-  }
+  },
+  "kingdeeSales": [
+    {
+      "saleId": 201363,
+      "isPos": false,
+      "folio": "XSCKD100949",
+      "amountApplied": 5166.67,
+      "appliedDate": "2026-05-18T17:29:44.433"
+    }
+  ]
 }
 ```
+
+#### `kingdeeSales`: the folio of the sale in Kingdee
+
+The sales the payment was applied to come from `PaymentApplications`, and the folio of the document generated in Kingdee lives in one of two tables, picked by `isPOS`:
+
+| `isPOS` | Table | Looked up by | Folio |
+| --- | --- | --- | --- |
+| `0` | `kingdee_sales_invoices` | `id = SaleId` | `bill_code`. Example: `XSCKD100949` |
+| `1` | `KingDeeSalesPOS` | `Id = SaleId` | `Folio`. Example: `10040002604109633` |
+
+It is a **list**, not a single field: one payment can be split across several sales. Payment `PAY-0526-000011`, for instance, is applied to three invoices (`XSCKD100949`, `XSCKD100955`, `XSCKD100950`), each with its own `amountApplied`.
+
+:::note `saleId: 0` means the sale does not exist in Kingdee yet
+The payment is already applied, but the sale has not been generated on the Kingdee side, so `folio` comes back `null`. The application is still published instead of being dropped, so it can be told apart from a payment that was never applied — that one returns `kingdeeSales` empty.
+:::
 
 Every reference is checked against BambooERP before the payment is inserted. If one does not exist, nothing is written and the API returns `400` with the reason:
 
@@ -1040,7 +1064,16 @@ GET .../api/payments?status=REJECTED
 GET .../api/payments?status=REJECTED,IN_PROCESS
 GET .../api/payments?status=VALID&startDate=2026-08-01&endDate=2026-08-07
 GET .../api/payments?status=VALID&customerCode=SLP2A101255&pageSize=100
+GET .../api/payments?branchCode=801.10.02&status=VALID
+GET .../api/payments?saleStartDate=2026-07-01&saleEndDate=2026-07-31
+GET .../api/payments?kingdeeSaleStartDate=2026-05-01&kingdeeSaleEndDate=2026-05-31
 ```
+
+:::note Three date ranges, three different dates
+`startDate`/`endDate` filter on **when the payment was made**, `saleStartDate`/`saleEndDate` on **when the sale was registered in BambooERP**, and `kingdeeSaleStartDate`/`kingdeeSaleEndDate` on **when the sale was billed in Kingdee**. They are independent and combine with AND, so a query can ask for payments collected in August against sales invoiced in Kingdee in May.
+
+The `kingdeeSale*` range reads `PaymentApplications`, `kingdee_sales_invoices` and `KingDeeSalesPOS`. On an environment without those tables that filter fails; the rest of the endpoint does not touch them.
+:::
 
 :::note A wrong status is an error, not an empty page
 A value outside the table returns `400` with the list of valid ones, so a typo cannot be read as "there are none":
@@ -1057,8 +1090,13 @@ A value outside the table returns `400` with the list of valid ones, so a typo c
 | `customerCode` | string | No | Exact customer code (`customers.customer_code`). Example: `SLP2A101255` |
 | `folio` | string | No | Partial match on the payment folio. Example: `PAY-0826` |
 | `saleFolio` | string | No | Folio of the sale the payment was applied to (`quotation.billCode`). Example: `2608-00022` |
-| `startDate` | date | No | Lower bound of `paymentDate`. Example: `2026-08-01` |
-| `endDate` | date | No | Upper bound of `paymentDate`. If sent without a time part, the whole day is included. |
+| `branchCode` | string | No | Branch **of the payment** (`starnet_branches.code`), reached through `Payments.DepartmentId` → `departments.branchId`. Same branch published as `kingdee.Fbranch`. Example: `801.10.02` |
+| `startDate` | date | No | Lower bound of the **payment date** (`paymentDate`). Example: `2026-08-01` |
+| `endDate` | date | No | Upper bound of the **payment date**. If sent without a time part, the whole day is included. |
+| `saleStartDate` | date | No | Lower bound of the **BambooERP sale date** (`quotation.created_at`, the sale behind `saleFolio`). Leaves out payments with no related sale. |
+| `saleEndDate` | date | No | Upper bound of the BambooERP sale date. Whole day included. |
+| `kingdeeSaleStartDate` | date | No | Lower bound of the **Kingdee sale date**: `kingdee_sales_invoices.bill_date`, or `KingDeeSalesPOS.BillDate` when the sale is a POS ticket. Keeps the payment when at least one of its applications falls in the range. |
+| `kingdeeSaleEndDate` | date | No | Upper bound of the Kingdee sale date. Whole day included. |
 | `paymentFormId` | integer | No | SAT payment form (`sat_FormaPago.ID`). |
 | `bankId` | integer | No | Bank account (`bancos.id`). |
 | `departmentId` | integer | No | Branch or department of the payment (`departments.id`). |
