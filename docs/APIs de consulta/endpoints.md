@@ -1172,3 +1172,298 @@ The ERP fills the amount when someone validates the payment, so `PENDING` and `I
 :::
 
 `summary` only lists the statuses actually present in the filtered set: asking for `status=REJECTED` returns a single entry, and a filter matching nothing returns `totalRecords: 0` with `summary` and `payments` empty.
+
+## 9. Credit sales (English endpoint)
+
+The sales that went on credit, each one with the payments applied against it, plus the metrics of the whole filtered set: how many credit sales there are and how long the customer takes to pay them.
+
+:::info Language
+This API is fully **in English** — routes, JSON field names, and status values — same as `7` and `8`.
+:::
+
+### How a credit sale is modelled
+
+A credit sale is **not the `quotation`**. It is the document generated in Kingdee — `kingdee_sales_invoices` with `isCredit = 1` and not cancelled — which is the same definition the ERP itself uses in its `ordersCredits` view, and the only place where the balance and the settlement date of the sale live.
+
+```text
+kingdee_sales_invoices.quoteId -> quotation.id
+```
+
+The BambooERP sale — the one `7` publishes — is reached through `quoteId`, so every record carries **two folios for the same commercial operation**:
+
+| Field | Description |
+| --- | --- |
+| `folio` | Folio of the sale in Kingdee (`kingdee_sales_invoices.bill_code`). Example: `XSCKD166673` |
+| `saleFolio` | Folio of the same sale in BambooERP (`quotation.billCode`). Example: `2605-05331` |
+| `invoiceCode` | Fiscal invoice folio, when the sale was invoiced. Example: `MEX79556` |
+
+The state of the debt comes straight from the Kingdee document:
+
+| Field | Description |
+| --- | --- |
+| `total` | Amount the sale was billed for (`bill_total_amount`). |
+| `paid` | Already collected: `total - balance`. |
+| `balance` | Still owed. |
+| `settledAt` | Date the sale was fully paid (`conclusion_date`). `null` while it is owed. |
+
+### Credit terms and due date
+
+The days of credit come from the customer's credit line (`CreditLines.creditDays`) and the process of their credit request (`credits.processType`). `dueDate` and `daysRemaining` are computed **exactly as the ERP does it**, so the API and the credits screen never disagree:
+
+| Customer process | Term |
+| --- | --- |
+| `Proceso CheckPlus` | `creditDays` flat from `billDate` |
+| Everyone else | `creditDays + 3`, **not counting Sundays** |
+
+### Status
+
+The status is computed, not stored, and is published in English:
+
+| `status` | ERP (`ordersCredits`) | Meaning |
+| --- | --- | --- |
+| `PAID` | `Pagada` | `balance = 0`: the sale is settled |
+| `OVERDUE` | `Pago vencido` | Still owed and past its due date |
+| `PENDING` | `Pendiente de pago` | Still owed, but within the term |
+
+Every status is returned twice, same as in `7`: `statusRaw` is the name the ERP computes (in Spanish) and `status` is that value in English.
+
+:::note A settled sale can still be overdue
+`status: "PAID"` with `daysOverdue > 0` is not a contradiction: the sale was paid, but after its due date. That is the ERP's own semantics and it is preserved as is.
+:::
+
+### The abonos
+
+The payments are the applications of a payment against the Kingdee document:
+
+```text
+PaymentApplications.SaleId    -> kingdee_sales_invoices.id   (StatusId = 1, isPOS = 0)
+PaymentApplications.PaymentId -> Payments.Id
+```
+
+**One payment can be split across several sales**, so what is published per sale is the part applied to it, not the whole payment:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `payments[].paymentId` | integer | Payment id (`Payments.Id`). |
+| `payments[].folio` | string | Payment folio. Example: `PAY-0626-000900` |
+| `payments[].amount` | decimal | Amount of the payment **applied to this sale** (`AmountApplied`). |
+| `payments[].paymentAmount` | decimal | Amount of the whole payment, which may cover other sales too. |
+| `payments[].paymentDate` | datetime | When the customer paid. |
+| `payments[].appliedDate` | datetime | When the ERP applied the payment to this sale. |
+| `payments[].daysFromSale` | integer | Days from `billDate` to `paymentDate`. Negative when the customer paid in advance. |
+| `payments[].paymentFormCode` | string | SAT code of the payment form (`sat_FormaPago.vchCode`). Example: `03` |
+| `payments[].paymentForm` | string | Payment form name. Example: `Transferencia electronica de fondos` |
+| `payments[].bank` | string | Bank of the payment, when registered. |
+| `payments[].reference` | string | Bank reference, when registered. |
+| `payments[].paymentType` | string | `payment`, `credit` or `advance`. |
+| `payments[].statusRaw` | string | Payment status as stored in BambooERP (in Spanish). |
+| `payments[].status` | string | `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` or `UNKNOWN`. |
+
+:::note The legacy tables are not read
+`applyPaymentsCredits` and `paymentsCredits` are the old credit-payments pair. Their rows were migrated into `PaymentApplications`, which is what the ERP writes today, so the endpoint reads only the latter. Applications undone by the ERP (`StatusId <> 1`) are left out.
+:::
+
+### How long a customer takes to pay
+
+There are **two ways to measure it and the endpoint publishes both**, because they do not give the same answer:
+
+| Metric | Measured on | What it answers |
+| --- | --- | --- |
+| `daysToSettle` | `billDate` → `settledAt` | The ERP figure: when the sale was marked as settled. This is what the credits screen shows. |
+| `daysToLastPayment` | `billDate` → `paymentDate` of the last payment | When **the customer** actually paid. |
+
+The gap between them is the ERP's own lag in applying payments, not the customer's. That is also why every payment carries `paymentDate` and `appliedDate` as separate fields.
+
+:::warning Reading the averages
+- **`daysToSettle` on an unsettled sale counts up to today**, so it reads as "how long it has been open". To average only what was actually collected use `avgDaysToSettle`, which takes settled sales only; for what is still open, `avgDaysOutstanding`.
+- **`weightedAvgDaysToSettle` weighs each sale by its amount**, so a large invoice paid late counts for more than a small one. That is the figure to read as DSO — the plain average treats a $500 sale the same as a $500,000 one.
+:::
+
+### 9.1 List credit sales
+
+Paged list of credit sales, ordered from newest to oldest.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/credit-sales
+```
+
+```http
+GET .../api/credit-sales?status=OVERDUE
+GET .../api/credit-sales?status=OVERDUE,PENDING&includePayments=false
+GET .../api/credit-sales?customerCode=AAA2A102159
+GET .../api/credit-sales?startDate=2026-05-01&endDate=2026-05-31&status=PAID
+GET .../api/credit-sales?minDaysToSettle=60
+GET .../api/credit-sales?folio=XSCKD166
+GET .../api/credit-sales?saleFolio=2605-05331
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | string | No | One or more statuses in English, comma separated. Example: `OVERDUE,PENDING` for everything still owed. |
+| `startDate` | date | No | Lower bound of the **sale date** (`billDate`). Example: `2026-05-01` |
+| `endDate` | date | No | Upper bound of the sale date. If sent without a time part, the whole day is included. |
+| `customerCode` | string | No | Exact customer code (`customers.customer_code`). Example: `AAA2A102159` |
+| `folio` | string | No | Partial match on the Kingdee folio. Example: `XSCKD166` |
+| `saleFolio` | string | No | Folio of the sale in BambooERP (`quotation.billCode`). Exact match. Example: `2605-05331` |
+| `branchCode` | string | No | Branch of the sale in Kingdee (`starnet_branches.code` through `kingdee_sales_invoices.branch_id`). Example: `801` |
+| `sellerId` | integer | No | Salesperson of the sale (`quotation.usuarioId`). |
+| `minDaysToSettle` | integer | No | Keeps the sales that took at least this many days. An unsettled sale counts the days it has been open. |
+| `maxDaysToSettle` | integer | No | Same bound, upper end. |
+| `includePayments` | boolean | No | Return the payments of every sale. Default `true`; `false` gives a lighter payload when only the metrics matter. |
+| `includeCustomerSummary` | boolean | No | Return the `byCustomer` block. Default `true`; it costs one aggregation over the whole filtered set. |
+| `page` | integer | No | Page number. Default `1`. |
+| `pageSize` | integer | No | Page size. Default `50`, maximum `200`. |
+
+:::note `branchCode` is not the same code as in `7.1`
+Here it is the **top-level** Kingdee branch reached from the invoice — for example `801` — not the department-derived code `7.1` filters by (`801.10.02`). A credit sale is a Kingdee document, so it carries the Kingdee branch.
+:::
+
+:::note A wrong status is an error, not an empty page
+A value outside the table returns `400` with the list of valid ones, so a typo cannot be read as "there are none":
+
+```json
+{ "message": "Unknown status: PAGADA. status must be one of: PAID, OVERDUE, PENDING." }
+```
+:::
+
+:::note
+All filters travel in the **query string**. This is a `GET`: filters sent as a JSON body are ignored, and the request comes back as if it had no filters at all.
+:::
+
+### Response
+
+`summary` and `byCustomer` cover **everything the filter matched**, not just the current page.
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 8957,
+  "totalPages": 180,
+  "summary": {
+    "totalSales": 8957,
+    "totalCustomers": 166,
+    "totalAmount": 398789624.49,
+    "paidAmount": 352466184.35,
+    "outstandingBalance": 46323440.14,
+    "paidCount": 7957,
+    "overdueCount": 1000,
+    "pendingCount": 0,
+    "overdueBalance": 46323440.14,
+    "avgDaysToSettle": 38.70,
+    "weightedAvgDaysToSettle": 42.55,
+    "maxDaysToSettle": 452,
+    "avgDaysToFirstPayment": 33.54,
+    "avgDaysToLastPayment": 35.85,
+    "avgDaysOutstanding": 150.36,
+    "paymentsCount": 10051,
+    "paymentsTotal": 351504525.98
+  },
+  "byCustomer": [
+    {
+      "customerId": 1738652,
+      "customerCode": "AAA2A102159",
+      "customer": "WILLY JINCHAO WU LI",
+      "creditLimit": 3000000.00,
+      "creditUsed": 2811865.00,
+      "creditDays": 30,
+      "sales": 24,
+      "totalAmount": 1802394.00,
+      "paidAmount": 1802394.00,
+      "outstandingBalance": 0.00,
+      "paidCount": 24,
+      "overdueCount": 0,
+      "pendingCount": 0,
+      "overdueBalance": 0.00,
+      "avgDaysToSettle": 23.21,
+      "weightedAvgDaysToSettle": 22.34,
+      "maxDaysToSettle": 31,
+      "avgDaysToLastPayment": 22.92,
+      "avgDaysOutstanding": null
+    }
+  ],
+  "sales": [
+    {
+      "invoiceId": 267078,
+      "folio": "XSCKD166673",
+      "saleFolio": "2605-05331",
+      "saleId": 98698,
+      "invoiceCode": null,
+      "billDate": "2026-05-30T12:44:49.483",
+      "customerId": 1738163,
+      "customerCode": "MIC3A100158",
+      "customer": "QUINTANA CASILLAS IVAN",
+      "branchCode": "801",
+      "branch": "Mexico",
+      "warehouse": "Cedis Ceylan",
+      "sellerId": 131,
+      "seller": "Juan Osvaldo Perea Ceja",
+      "total": 54400.00,
+      "paid": 54400.00,
+      "balance": 0.00,
+      "creditDays": 30,
+      "dueDate": "2026-07-07T00:00:00",
+      "settledAt": "2026-06-11T16:05:32.33",
+      "daysToSettle": 12,
+      "isSettled": true,
+      "daysRemaining": 21,
+      "daysOverdue": 0,
+      "status": "PAID",
+      "statusRaw": "Pagada",
+      "firstPaymentDate": "2026-06-04T00:00:00",
+      "lastPaymentDate": "2026-06-04T00:00:00",
+      "daysToFirstPayment": 5,
+      "daysToLastPayment": 5,
+      "paymentsCount": 1,
+      "paymentsTotal": 54400.00,
+      "payments": [
+        {
+          "paymentId": 44650,
+          "folio": "PAY-0626-000900",
+          "amount": 54400.00,
+          "paymentAmount": 54400.00,
+          "paymentDate": "2026-06-04T00:00:00",
+          "appliedDate": "2026-06-11T16:05:32.357",
+          "daysFromSale": 5,
+          "paymentFormCode": "03",
+          "paymentForm": "Transferencia electronica de fondos",
+          "bank": "MIFEL",
+          "reference": "9069923",
+          "paymentType": "credit",
+          "statusId": 29,
+          "statusRaw": "Valido",
+          "status": "VALID"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Fields of `summary`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `totalSales` | integer | Credit sales the filter matched. |
+| `totalCustomers` | integer | Distinct customers behind those sales. |
+| `totalAmount` | decimal | Sum of `total`: everything sold on credit. |
+| `paidAmount` | decimal | Sum of `paid`: how much has been collected. |
+| `outstandingBalance` | decimal | Sum of `balance`: how much is still owed. |
+| `paidCount` | integer | Sales in `PAID`. |
+| `overdueCount` | integer | Sales in `OVERDUE`. |
+| `pendingCount` | integer | Sales in `PENDING`. |
+| `overdueBalance` | decimal | Balance still owed by the overdue sales. |
+| `avgDaysToSettle` | decimal | Average `daysToSettle` of the **settled** sales. `null` when none is settled yet. |
+| `weightedAvgDaysToSettle` | decimal | Same average weighted by the amount of each sale — the DSO figure. |
+| `maxDaysToSettle` | integer | Longest `daysToSettle` among the settled sales. |
+| `avgDaysToFirstPayment` | decimal | Average days from the sale to its first payment. |
+| `avgDaysToLastPayment` | decimal | Average days from the sale to its last payment. |
+| `avgDaysOutstanding` | decimal | Average days the **unsettled** sales have been open. `null` when every matching sale is settled. |
+| `paymentsCount` | integer | Payments applied to the matched sales. |
+| `paymentsTotal` | decimal | What those payments add up to. |
+
+`byCustomer[]` repeats the same figures per customer — plus `creditLimit`, `creditUsed` and `creditDays` from their credit line — ordered by outstanding balance, highest first.
+
+:::note An empty result is still a valid answer
+A filter matching nothing returns `totalRecords: 0` with `sales` and `byCustomer` empty and every average in `summary` as `null`. The endpoint reads `kingdee_sales_invoices`, `PaymentApplications`, `Payments`, `CreditLines` and `credits`; on an environment where `kingdee_sales_invoices` is empty it returns zero sales, which means there are no credit sales to report there — not that the endpoint failed.
+:::

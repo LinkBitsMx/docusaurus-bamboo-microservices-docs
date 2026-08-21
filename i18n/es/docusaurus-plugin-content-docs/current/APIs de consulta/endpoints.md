@@ -1172,3 +1172,298 @@ El ERP llena el importe cuando alguien valida el pago, por eso `PENDING` e `IN_P
 :::
 
 `summary` lista unicamente los estatus presentes en el conjunto filtrado: pedir `status=REJECTED` regresa una sola entrada, y un filtro que no matchea nada regresa `totalRecords: 0` con `summary` y `payments` vacios.
+
+## 9. Ventas a credito (endpoint en ingles)
+
+Las ventas que se fueron a credito, cada una con los pagos aplicados en su contra, mas las metricas de todo lo que matcheo el filtro: cuantas ventas a credito hay y cuanto tarda el cliente en pagarlas.
+
+:::info Idioma
+Esta API esta completamente **en ingles** — rutas, nombres de campos y valores de estado — igual que `7` y `8`.
+:::
+
+### Como se modela una venta a credito
+
+Una venta a credito **no es la `quotation`**. Es el documento generado en Kingdee — `kingdee_sales_invoices` con `isCredit = 1` y sin cancelar — que es la misma definicion que usa el propio ERP en su vista `ordersCredits`, y el unico lugar donde viven el saldo y la fecha de liquidacion de la venta.
+
+```text
+kingdee_sales_invoices.quoteId -> quotation.id
+```
+
+La venta de BambooERP — la que publica `7` — se alcanza por `quoteId`, asi que cada registro trae **dos folios de la misma operacion comercial**:
+
+| Campo | Descripcion |
+| --- | --- |
+| `folio` | Folio de la venta en Kingdee (`kingdee_sales_invoices.bill_code`). Ejemplo: `XSCKD166673` |
+| `saleFolio` | Folio de la misma venta en BambooERP (`quotation.billCode`). Ejemplo: `2605-05331` |
+| `invoiceCode` | Folio de la factura fiscal, cuando la venta se facturo. Ejemplo: `MEX79556` |
+
+El estado de la deuda sale directo del documento de Kingdee:
+
+| Campo | Descripcion |
+| --- | --- |
+| `total` | Importe por el que se facturo la venta (`bill_total_amount`). |
+| `paid` | Ya cobrado: `total - balance`. |
+| `balance` | Lo que aun se debe. |
+| `settledAt` | Fecha en que la venta quedo saldada (`conclusion_date`). Es `null` mientras se deba. |
+
+### Plazo y fecha de vencimiento
+
+Los dias de credito salen de la linea de credito del cliente (`CreditLines.creditDays`) y del proceso de su solicitud (`credits.processType`). `dueDate` y `daysRemaining` se calculan **exactamente como lo hace el ERP**, para que la API y la pantalla de creditos nunca discrepen:
+
+| Proceso del cliente | Plazo |
+| --- | --- |
+| `Proceso CheckPlus` | `creditDays` planos desde `billDate` |
+| Todos los demas | `creditDays + 3`, **sin contar domingos** |
+
+### Estatus
+
+El estatus se calcula, no se guarda, y se publica en ingles:
+
+| `status` | ERP (`ordersCredits`) | Significado |
+| --- | --- | --- |
+| `PAID` | `Pagada` | `balance = 0`: la venta ya se liquido |
+| `OVERDUE` | `Pago vencido` | Aun se debe y ya paso su fecha de vencimiento |
+| `PENDING` | `Pendiente de pago` | Aun se debe, pero dentro del plazo |
+
+Cada estatus se regresa por duplicado, igual que en `7`: `statusRaw` es el nombre que calcula el ERP (en espanol) y `status` es ese mismo valor en ingles.
+
+:::note Una venta liquidada puede seguir marcando vencimiento
+`status: "PAID"` con `daysOverdue > 0` no es una contradiccion: la venta se pago, pero despues de su fecha de vencimiento. Es la semantica del propio ERP y se conserva tal cual.
+:::
+
+### Los abonos
+
+Los pagos son las aplicaciones de un pago contra el documento de Kingdee:
+
+```text
+PaymentApplications.SaleId    -> kingdee_sales_invoices.id   (StatusId = 1, isPOS = 0)
+PaymentApplications.PaymentId -> Payments.Id
+```
+
+**Un pago se puede repartir entre varias ventas**, asi que lo que se publica por venta es la parte aplicada a ella, no el pago completo:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `payments[].paymentId` | integer | Id del pago (`Payments.Id`). |
+| `payments[].folio` | string | Folio del pago. Ejemplo: `PAY-0626-000900` |
+| `payments[].amount` | decimal | Importe del pago **aplicado a esta venta** (`AmountApplied`). |
+| `payments[].paymentAmount` | decimal | Importe del pago completo, que puede cubrir otras ventas tambien. |
+| `payments[].paymentDate` | datetime | Cuando pago el cliente. |
+| `payments[].appliedDate` | datetime | Cuando el ERP aplico el pago a esta venta. |
+| `payments[].daysFromSale` | integer | Dias de `billDate` a `paymentDate`. Negativo cuando el cliente pago por anticipado. |
+| `payments[].paymentFormCode` | string | Codigo SAT de la forma de pago (`sat_FormaPago.vchCode`). Ejemplo: `03` |
+| `payments[].paymentForm` | string | Nombre de la forma de pago. Ejemplo: `Transferencia electronica de fondos` |
+| `payments[].bank` | string | Banco del pago, cuando esta registrado. |
+| `payments[].reference` | string | Referencia bancaria, cuando esta registrada. |
+| `payments[].paymentType` | string | `payment`, `credit` o `advance`. |
+| `payments[].statusRaw` | string | Estatus del pago tal cual esta en BambooERP (en espanol). |
+| `payments[].status` | string | `VALID`, `REJECTED`, `PENDING`, `IN_PROCESS`, `CANCELLED` o `UNKNOWN`. |
+
+:::note Las tablas legacy no se leen
+`applyPaymentsCredits` y `paymentsCredits` son el par viejo de pagos a credito. Sus renglones se migraron a `PaymentApplications`, que es donde el ERP escribe hoy, asi que el endpoint solo lee esta ultima. Las aplicaciones que el ERP deshizo (`StatusId <> 1`) quedan fuera.
+:::
+
+### Cuanto tarda un cliente en pagarnos
+
+Hay **dos maneras de medirlo y el endpoint publica las dos**, porque no dan la misma respuesta:
+
+| Metrica | Se mide sobre | Que responde |
+| --- | --- | --- |
+| `daysToSettle` | `billDate` → `settledAt` | El dato del ERP: cuando se marco la venta como saldada. Es lo que muestra la pantalla de creditos. |
+| `daysToLastPayment` | `billDate` → `paymentDate` del ultimo abono | Cuando pago **el cliente** de verdad. |
+
+La diferencia entre ambas es el rezago del propio ERP en aplicar los pagos, no del cliente. Por eso mismo cada abono trae `paymentDate` y `appliedDate` como campos separados.
+
+:::warning Como leer los promedios
+- **`daysToSettle` de una venta sin liquidar cuenta hasta hoy**, asi que se lee como "cuanto lleva abierta". Para promediar solo lo que ya se cobro esta `avgDaysToSettle`, que toma unicamente las liquidadas; para lo que sigue abierto, `avgDaysOutstanding`.
+- **`weightedAvgDaysToSettle` pondera cada venta por su importe**, asi que una factura grande pagada tarde pesa mas que una chica. Ese es el numero a leer como DSO — el promedio simple trata igual una venta de $500 que una de $500,000.
+:::
+
+### 9.1 Listar ventas a credito
+
+Listado paginado de ventas a credito, de la mas nueva a la mas vieja.
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/credit-sales
+```
+
+```http
+GET .../api/credit-sales?status=OVERDUE
+GET .../api/credit-sales?status=OVERDUE,PENDING&includePayments=false
+GET .../api/credit-sales?customerCode=AAA2A102159
+GET .../api/credit-sales?startDate=2026-05-01&endDate=2026-05-31&status=PAID
+GET .../api/credit-sales?minDaysToSettle=60
+GET .../api/credit-sales?folio=XSCKD166
+GET .../api/credit-sales?saleFolio=2605-05331
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `status` | string | No | Uno o varios estatus en ingles, separados por coma. Ejemplo: `OVERDUE,PENDING` para todo lo que sigue debiendose. |
+| `startDate` | date | No | Limite inferior de la **fecha de la venta** (`billDate`). Ejemplo: `2026-05-01` |
+| `endDate` | date | No | Limite superior de la fecha de la venta. Si se manda sin hora, se incluye el dia completo. |
+| `customerCode` | string | No | Codigo exacto del cliente (`customers.customer_code`). Ejemplo: `AAA2A102159` |
+| `folio` | string | No | Coincidencia parcial sobre el folio de Kingdee. Ejemplo: `XSCKD166` |
+| `saleFolio` | string | No | Folio de la venta en BambooERP (`quotation.billCode`). Coincidencia exacta. Ejemplo: `2605-05331` |
+| `branchCode` | string | No | Sucursal de la venta en Kingdee (`starnet_branches.code` via `kingdee_sales_invoices.branch_id`). Ejemplo: `801` |
+| `sellerId` | integer | No | Vendedor de la venta (`quotation.usuarioId`). |
+| `minDaysToSettle` | integer | No | Conserva las ventas que tardaron al menos esos dias. Una venta sin liquidar cuenta los dias que lleva abierta. |
+| `maxDaysToSettle` | integer | No | El mismo limite, por arriba. |
+| `includePayments` | boolean | No | Regresar los abonos de cada venta. Default `true`; con `false` la respuesta va mas ligera cuando solo importan las metricas. |
+| `includeCustomerSummary` | boolean | No | Regresar el bloque `byCustomer`. Default `true`; cuesta una agregacion sobre todo el conjunto filtrado. |
+| `page` | integer | No | Numero de pagina. Default `1`. |
+| `pageSize` | integer | No | Tamano de pagina. Default `50`, maximo `200`. |
+
+:::note `branchCode` no es el mismo codigo que en `7.1`
+Aqui es la sucursal **de primer nivel** de Kingdee, la que trae la factura — por ejemplo `801` — no el codigo por departamento que filtra `7.1` (`801.10.02`). Una venta a credito es un documento de Kingdee, asi que carga la sucursal de Kingdee.
+:::
+
+:::note Un estatus invalido es un error, no una pagina vacia
+Un valor fuera de la tabla regresa `400` con la lista de los validos, para que un typo no se lea como "no hay ninguna":
+
+```json
+{ "message": "Unknown status: PAGADA. status must be one of: PAID, OVERDUE, PENDING." }
+```
+:::
+
+:::note
+Todos los filtros viajan en el **query string**. Esto es un `GET`: los filtros mandados como cuerpo JSON se ignoran, y la peticion regresa como si no tuviera filtros.
+:::
+
+### Respuesta
+
+`summary` y `byCustomer` cubren **todo lo que matcheo el filtro**, no solo la pagina actual.
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 8957,
+  "totalPages": 180,
+  "summary": {
+    "totalSales": 8957,
+    "totalCustomers": 166,
+    "totalAmount": 398789624.49,
+    "paidAmount": 352466184.35,
+    "outstandingBalance": 46323440.14,
+    "paidCount": 7957,
+    "overdueCount": 1000,
+    "pendingCount": 0,
+    "overdueBalance": 46323440.14,
+    "avgDaysToSettle": 38.70,
+    "weightedAvgDaysToSettle": 42.55,
+    "maxDaysToSettle": 452,
+    "avgDaysToFirstPayment": 33.54,
+    "avgDaysToLastPayment": 35.85,
+    "avgDaysOutstanding": 150.36,
+    "paymentsCount": 10051,
+    "paymentsTotal": 351504525.98
+  },
+  "byCustomer": [
+    {
+      "customerId": 1738652,
+      "customerCode": "AAA2A102159",
+      "customer": "WILLY JINCHAO WU LI",
+      "creditLimit": 3000000.00,
+      "creditUsed": 2811865.00,
+      "creditDays": 30,
+      "sales": 24,
+      "totalAmount": 1802394.00,
+      "paidAmount": 1802394.00,
+      "outstandingBalance": 0.00,
+      "paidCount": 24,
+      "overdueCount": 0,
+      "pendingCount": 0,
+      "overdueBalance": 0.00,
+      "avgDaysToSettle": 23.21,
+      "weightedAvgDaysToSettle": 22.34,
+      "maxDaysToSettle": 31,
+      "avgDaysToLastPayment": 22.92,
+      "avgDaysOutstanding": null
+    }
+  ],
+  "sales": [
+    {
+      "invoiceId": 267078,
+      "folio": "XSCKD166673",
+      "saleFolio": "2605-05331",
+      "saleId": 98698,
+      "invoiceCode": null,
+      "billDate": "2026-05-30T12:44:49.483",
+      "customerId": 1738163,
+      "customerCode": "MIC3A100158",
+      "customer": "QUINTANA CASILLAS IVAN",
+      "branchCode": "801",
+      "branch": "Mexico",
+      "warehouse": "Cedis Ceylan",
+      "sellerId": 131,
+      "seller": "Juan Osvaldo Perea Ceja",
+      "total": 54400.00,
+      "paid": 54400.00,
+      "balance": 0.00,
+      "creditDays": 30,
+      "dueDate": "2026-07-07T00:00:00",
+      "settledAt": "2026-06-11T16:05:32.33",
+      "daysToSettle": 12,
+      "isSettled": true,
+      "daysRemaining": 21,
+      "daysOverdue": 0,
+      "status": "PAID",
+      "statusRaw": "Pagada",
+      "firstPaymentDate": "2026-06-04T00:00:00",
+      "lastPaymentDate": "2026-06-04T00:00:00",
+      "daysToFirstPayment": 5,
+      "daysToLastPayment": 5,
+      "paymentsCount": 1,
+      "paymentsTotal": 54400.00,
+      "payments": [
+        {
+          "paymentId": 44650,
+          "folio": "PAY-0626-000900",
+          "amount": 54400.00,
+          "paymentAmount": 54400.00,
+          "paymentDate": "2026-06-04T00:00:00",
+          "appliedDate": "2026-06-11T16:05:32.357",
+          "daysFromSale": 5,
+          "paymentFormCode": "03",
+          "paymentForm": "Transferencia electronica de fondos",
+          "bank": "MIFEL",
+          "reference": "9069923",
+          "paymentType": "credit",
+          "statusId": 29,
+          "statusRaw": "Valido",
+          "status": "VALID"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Campos de `summary`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `totalSales` | integer | Ventas a credito que matchearon el filtro. |
+| `totalCustomers` | integer | Clientes distintos detras de esas ventas. |
+| `totalAmount` | decimal | Suma de `total`: todo lo vendido a credito. |
+| `paidAmount` | decimal | Suma de `paid`: cuanto se ha cobrado. |
+| `outstandingBalance` | decimal | Suma de `balance`: cuanto se sigue debiendo. |
+| `paidCount` | integer | Ventas en `PAID`. |
+| `overdueCount` | integer | Ventas en `OVERDUE`. |
+| `pendingCount` | integer | Ventas en `PENDING`. |
+| `overdueBalance` | decimal | Saldo que aun deben las ventas vencidas. |
+| `avgDaysToSettle` | decimal | Promedio de `daysToSettle` de las ventas **liquidadas**. Es `null` cuando ninguna se ha liquidado. |
+| `weightedAvgDaysToSettle` | decimal | El mismo promedio ponderado por el importe de cada venta — la cifra de DSO. |
+| `maxDaysToSettle` | integer | El `daysToSettle` mas alto entre las liquidadas. |
+| `avgDaysToFirstPayment` | decimal | Promedio de dias de la venta a su primer abono. |
+| `avgDaysToLastPayment` | decimal | Promedio de dias de la venta a su ultimo abono. |
+| `avgDaysOutstanding` | decimal | Promedio de dias que llevan abiertas las ventas **sin liquidar**. Es `null` cuando todas las que matchearon estan liquidadas. |
+| `paymentsCount` | integer | Abonos aplicados a las ventas que matchearon. |
+| `paymentsTotal` | decimal | Cuanto suman esos abonos. |
+
+`byCustomer[]` repite las mismas cifras por cliente — mas `creditLimit`, `creditUsed` y `creditDays` de su linea de credito — ordenado por saldo pendiente, de mayor a menor.
+
+:::note Un resultado vacio tambien es una respuesta valida
+Un filtro que no matchea nada regresa `totalRecords: 0` con `sales` y `byCustomer` vacios y todos los promedios de `summary` en `null`. El endpoint lee `kingdee_sales_invoices`, `PaymentApplications`, `Payments`, `CreditLines` y `credits`; en un ambiente donde `kingdee_sales_invoices` este vacia regresa cero ventas, lo que significa que ahi no hay ventas a credito que reportar — no que el endpoint haya fallado.
+:::
