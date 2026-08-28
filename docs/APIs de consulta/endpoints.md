@@ -1467,3 +1467,118 @@ All filters travel in the **query string**. This is a `GET`: filters sent as a J
 :::note An empty result is still a valid answer
 A filter matching nothing returns `totalRecords: 0` with `sales` and `byCustomer` empty and every average in `summary` as `null`. The endpoint reads `kingdee_sales_invoices`, `PaymentApplications`, `Payments`, `CreditLines` and `credits`; on an environment where `kingdee_sales_invoices` is empty it returns zero sales, which means there are no credit sales to report there — not that the endpoint failed.
 :::
+
+## 10. Customer account statement
+
+The account statement of a customer: the same data the ERP shows on its customer screen — a summary with the balances of the account and the movements, each one with its charge, its payment and the running balance after it.
+
+:::info Language
+This endpoint mirrors the ERP screen, so the route and the JSON field names are in **Spanish** — unlike `7`, `8` and `9`, which are fully in English.
+:::
+
+### How the statement is built
+
+- **Charge (`cargo`):** a credit invoice — `kingdee_sales_invoices` with `isCredit = 1` and not cancelled, the same definition `9` uses. The document is `bill_code` and the status is the one the ERP computes (`Pagada`, `Pendiente de pago` or `Pago vencido`), with the same due-date rule as `9`.
+- **Payment (`abono`):** an application of a payment against those invoices (`PaymentApplications` with `StatusId = 1` and `isPOS = 0`). The document is the payment folio and the amount is the part applied; the status is the payment's `catEstatus` name.
+- **Balance (`saldo`):** accumulated in chronological order over the **whole** history of the customer. The `desde`/`hasta` and `buscar` filters only narrow what is shown: the balance of each row is the real balance of the account at that moment, not the accumulation of the filtered range.
+
+```text
+kingdee_sales_invoices.customer_id -> customers.customer_id   (isCredit = 1, not cancelled)
+PaymentApplications.SaleId         -> kingdee_sales_invoices.id (StatusId = 1, isPOS = 0)
+PaymentApplications.PaymentId      -> Payments.Id
+```
+
+### Summary
+
+The `resumen` block carries the same cards as the ERP screen, over the whole history of the customer (not the filtered range):
+
+| Field | Where it comes from |
+| --- | --- |
+| `totalCompras` | Total billed on credit: the sum of the charges. |
+| `saldoAFavor` | Valid advances (`Payments.PaymentType = 'advance'` with status `Valido`) minus what has already been applied to invoices. |
+| `lineaCredito` / `creditoUsado` | `CreditLines.creditLimit` / `creditUsed`. `null` when the customer has no credit line. |
+| `creditoDisponible` | Credit line minus credit used. |
+| `saldoActual` | Final balance of the account: what the customer owes today. |
+
+### 10.1 Get the account statement of a customer
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/estado-cuenta/{customerCode}
+```
+
+```http
+GET .../api/estado-cuenta/CUST0017
+GET .../api/estado-cuenta/CUST0017?desde=2026-05-01&hasta=2026-05-31
+GET .../api/estado-cuenta/CUST0017?buscar=XSCKD16&pagina=1&tamanoPagina=10
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `customerCode` | string | Yes | Customer code in the path (`customers.customer_code`). Example: `CUST0017` |
+| `desde` | date | No | Lower bound over the movement date. Example: `2026-05-01` |
+| `hasta` | date | No | Upper bound over the movement date. If sent without a time part, the whole day is included. |
+| `buscar` | string | No | Partial match on the document folio, the sale folio, the type (`Factura`/`Pago`) or the status. |
+| `pagina` | integer | No | Page number. Default `1`. |
+| `tamanoPagina` | integer | No | Page size. Default `50`, maximum `200`. |
+
+:::note A wrong customer is a 404
+A `customerCode` that does not exist in `customers` returns `404` with `{ "message": "El cliente {customerCode} no existe." }`.
+:::
+
+### Response
+
+```json
+{
+  "codigoCliente": "CUST0017",
+  "cliente": "ITBS S.A. DE C.V.",
+  "resumen": {
+    "totalCompras": 54400.00,
+    "saldoAFavor": 0.00,
+    "creditoUsado": 2811865.00,
+    "creditoDisponible": 188135.00,
+    "lineaCredito": 3000000.00,
+    "saldoActual": 0.00
+  },
+  "pagina": 1,
+  "tamanoPagina": 50,
+  "totalRegistros": 2,
+  "totalPaginas": 1,
+  "movimientos": [
+    {
+      "fecha": "2026-05-30T12:44:49.483",
+      "tipo": "Factura",
+      "documento": "XSCKD166673",
+      "folioVenta": "2605-05331",
+      "cargo": 54400.00,
+      "abono": 0.00,
+      "saldo": 54400.00,
+      "estatus": "Pagada"
+    },
+    {
+      "fecha": "2026-06-04T00:00:00",
+      "tipo": "Pago",
+      "documento": "PAY-0626-000900",
+      "folioVenta": null,
+      "cargo": 0.00,
+      "abono": 54400.00,
+      "saldo": 0.00,
+      "estatus": "Valido"
+    }
+  ]
+}
+```
+
+**Fields of `movimientos[]`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `fecha` | datetime | Date of the movement: the invoice (`bill_date`) or the payment application. |
+| `tipo` | string | `Factura` (charge) or `Pago` (payment). |
+| `documento` | string | Folio of the document: `bill_code` of the invoice or the payment folio. |
+| `folioVenta` | string | Folio of the sale in BambooERP (`quotation.billCode`) on invoices; `null` on payments. |
+| `cargo` | decimal | Amount that opened balance. Zero on payments. |
+| `abono` | decimal | Amount applied to balance. Zero on invoices. |
+| `saldo` | decimal | Balance of the account after this movement, in chronological order. |
+| `estatus` | string | On invoices, the status the ERP computes (`Pagada`, `Pendiente de pago`, `Pago vencido`); on payments, the `catEstatus` name of the payment. |
+
+`totalRegistros` and `totalPaginas` count the movements that match the filters, not just the current page.
