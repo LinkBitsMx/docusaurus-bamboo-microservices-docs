@@ -1467,3 +1467,201 @@ Todos los filtros viajan en el **query string**. Esto es un `GET`: los filtros m
 :::note Un resultado vacio tambien es una respuesta valida
 Un filtro que no matchea nada regresa `totalRecords: 0` con `sales` y `byCustomer` vacios y todos los promedios de `summary` en `null`. El endpoint lee `kingdee_sales_invoices`, `PaymentApplications`, `Payments`, `CreditLines` y `credits`; en un ambiente donde `kingdee_sales_invoices` este vacia regresa cero ventas, lo que significa que ahi no hay ventas a credito que reportar — no que el endpoint haya fallado.
 :::
+
+## 11. Clientes (endpoint en ingles)
+
+Los datos basicos de un cliente — contacto, empresa, categoria, sucursal y datos fiscales — junto con las direcciones que tiene registradas.
+
+:::info Idioma
+Esta API esta completamente **en ingles** — rutas y nombres de campos — igual que `7`, `8` y `9`.
+:::
+
+### Las dos llaves de un cliente
+
+La tabla `customers` tiene dos llaves distintas, y la respuesta expone ambas:
+
+| Campo | Columna | Para que sirve |
+| --- | --- | --- |
+| `id` | `customers.id` | Llave primaria del renglon del cliente. Las direcciones (`customer_addresses.customer_id`) apuntan a esta. |
+| `customerId` | `customers.customer_id` | El id con el que se une el resto del ERP: ventas, pagos y estado de cuenta. Es `null` en clientes que nunca lo recibieron. |
+
+:::caution Las direcciones no cuelgan de `customerId`
+A pesar del nombre de la columna, `customer_addresses.customer_id` apunta a `customers.id`, no a `customers.customer_id`. Usa `id` para relacionar una direccion con su cliente, y `customerCode` o `customerId` para relacionar al cliente con el resto de las APIs.
+:::
+
+### Estatus y categoria
+
+| Campo | De donde sale |
+| --- | --- |
+| `statusId` / `status` | `customers.statusId` → `catEstatus`. Valores en uso: `1` (`ACTIVO`), `2` (`ELIMINADO`), `8` (`CANCELADO`). |
+| `categoryCode` / `category` | `customers.customer_categoryId` guarda el **codigo** de `Customer_categories` (`C3`, `C5`, `C9`, …), no su id. Ejemplo: `C5` → `MIEMBRO`. |
+| `branchId` / `branch` | Sucursal del cliente, tal como esta guardada en el renglon del cliente. |
+
+### 11.1 Listar clientes
+
+```http
+GET https://bamboonetapi.ddns.net/api/customers
+```
+
+```http
+GET .../api/customers?search=Martinez&onlyActive=true
+GET .../api/customers?categoryCode=C9&page=1&pageSize=20
+GET .../api/customers?city=Monterrey&includeAddresses=false
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `search` | string | No | Coincidencia parcial sobre el codigo, nombre, razon social, email, telefono (`phone` o `phoneAlt`) o RFC. |
+| `customerCode` | string | No | Codigo exacto del cliente. Es unico en el catalogo. |
+| `statusId` | integer | No | Estatus del cliente: `1` (ACTIVO), `2` (ELIMINADO) u `8` (CANCELADO). |
+| `onlyActive` | boolean | No | Atajo de `statusId=1`. Se ignora cuando se manda `statusId`. |
+| `categoryCode` | string | No | Codigo de categoria. Ejemplo: `C5` |
+| `branchId` | integer | No | Sucursal del cliente. |
+| `city` | string | No | Coincidencia parcial sobre la ciudad del cliente. |
+| `state` | string | No | Coincidencia parcial sobre el estado del cliente. |
+| `startDate` | date | No | Clientes dados de alta en o despues de este dia (`createdAt`). |
+| `endDate` | date | No | Clientes dados de alta en o antes de este dia. Si se manda sin hora, incluye el dia completo. |
+| `includeAddresses` | boolean | No | Trae las direcciones de cada cliente de la pagina. Default `true`; manda `false` para omitirlas. |
+| `page` | integer | No | Numero de pagina. Default `1`. |
+| `pageSize` | integer | No | Tamano de pagina. Default `50`, maximo `200`. |
+
+Los clientes se ordenan por nombre.
+
+### Respuesta
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 18,
+  "totalPages": 1,
+  "customers": [
+    {
+      "id": 1024,
+      "customerId": 500123,
+      "customerCode": "CUST0042",
+      "name": "Laura Martinez Rios",
+      "statusId": 1,
+      "status": "ACTIVO",
+      "phone": "8112345678",
+      "phoneAlt": null,
+      "email": "cliente@ejemplo.com",
+      "address": "Av. Constitucion 100",
+      "country": "Mexico",
+      "state": "Nuevo León",
+      "city": "Monterrey",
+      "birthDate": "1990-01-01T00:00:00",
+      "gender": "F",
+      "companyName": null,
+      "companyType": null,
+      "companySize": null,
+      "categoryCode": "C5",
+      "category": "MIEMBRO",
+      "branchId": 100,
+      "branch": "Sucursal Monterrey",
+      "assignedUserId": null,
+      "createdAt": "2026-06-16T13:40:19.583",
+      "updatedAt": "2026-06-16T13:40:19.583",
+      "tax": {
+        "invoiceRequired": true,
+        "taxId": "XAXX010101000",
+        "name": "LAURA MARTINEZ RIOS",
+        "email": "facturas@ejemplo.com",
+        "address": "Av. Constitucion 100",
+        "zipCode": "64000",
+        "regimeCode": "612",
+        "useCode": "G03",
+        "personType": "Fisica"
+      },
+      "addresses": [
+        {
+          "id": 2048,
+          "addressType": "Punto de Venta",
+          "street": "Av. Constitucion 100",
+          "neighborhood": "Centro",
+          "postalCode": "64000",
+          "city": "Monterrey",
+          "state": "Nuevo León",
+          "country": "Mexico",
+          "createdAt": "2026-06-16T13:40:19.583",
+          "updatedAt": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Campos de `customers[]`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `id` | integer | Llave primaria del renglon del cliente (`customers.id`). |
+| `customerId` | integer? | Id del cliente que usa el resto del ERP (`customers.customer_id`). |
+| `customerCode` | string | Codigo del cliente. |
+| `name` | string | Nombre del cliente. |
+| `statusId` / `status` | integer / string | Estatus del cliente y su nombre. |
+| `phone` / `phoneAlt` | string | Telefono principal y alterno. |
+| `email` | string | Email del cliente. |
+| `address` | string | Direccion en texto libre guardada en el propio renglon del cliente. Es independiente de `addresses[]`. |
+| `country` / `state` / `city` | string | Ubicacion del cliente. |
+| `birthDate` / `gender` | date? / string | Datos personales, cuando se capturaron. |
+| `companyName` / `companyType` / `companySize` | string | Datos de la empresa, cuando el cliente es empresa. |
+| `categoryCode` / `category` | string | Codigo y nombre de la categoria. |
+| `branchId` / `branch` | integer? / string | Sucursal del cliente. |
+| `assignedUserId` | integer? | Vendedor al que esta asignado el cliente. |
+| `createdAt` / `updatedAt` | datetime | Alta y ultima actualizacion del cliente. |
+| `tax` | object | Datos fiscales para facturar al cliente (ver abajo). |
+| `addresses` | array | Direcciones del cliente (ver abajo). Vacio cuando no tiene o cuando `includeAddresses=false`. |
+
+**Campos de `tax`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `invoiceRequired` | boolean? | Si el cliente pide factura. |
+| `taxId` | string | RFC del cliente. |
+| `name` | string | Razon social para facturar. |
+| `email` | string | Email al que se envian las facturas. |
+| `address` | string | Domicilio fiscal. |
+| `zipCode` | string | Codigo postal fiscal. |
+| `regimeCode` | string | Clave de regimen fiscal del SAT. Ejemplo: `612` |
+| `useCode` | string | Clave de uso de CFDI del SAT. Ejemplo: `G03` |
+| `personType` | string | Si el cliente es persona fisica o moral. |
+
+**Campos de `addresses[]`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `id` | integer | Id de la direccion. |
+| `addressType` | string | Tipo de direccion: `Punto de Venta`, `Envío a domicilio`, `Facturación` o `POS`. |
+| `street` | string | Calle y numero. |
+| `neighborhood` | string | Colonia. Puede ser `null`. |
+| `postalCode` | string | Codigo postal. |
+| `city` / `state` / `country` | string | Ubicacion de la direccion. |
+| `createdAt` / `updatedAt` | datetime? | Alta y ultima actualizacion de la direccion. |
+
+:::note Compara `addressType` de forma laxa
+`addressType` se regresa tal cual esta guardado en el ERP. Algunos renglones viejos traen los acentos doblemente codificados (por ejemplo, una variante rota de `Envío a domicilio`), asi que no dependas de los acentos exactos al comparar este campo.
+:::
+
+`totalRecords` y `totalPages` cuentan los clientes que coinciden con los filtros, no solo la pagina actual.
+
+### 11.2 Consultar un cliente
+
+```http
+GET https://bamboonetapi.ddns.net/api/customers/{customerCode}
+```
+
+```http
+GET .../api/customers/CUST0042
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `customerCode` | string | Si | Codigo del cliente en la ruta (`customers.customer_code`). Ejemplo: `CUST0042` |
+
+Regresa un solo cliente con la misma forma que un elemento de `customers[]` en `11.1` — sin el envoltorio de paginacion — y siempre con sus direcciones.
+
+:::note Un cliente inexistente es un 404
+Un `customerCode` que no existe en `customers` regresa `404` con `{ "message": "El cliente {customerCode} no existe." }`.
+:::

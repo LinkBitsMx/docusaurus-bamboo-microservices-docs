@@ -1602,3 +1602,201 @@ A `customerCode` that does not exist in `customers` returns `404` with `{ "messa
 
 `totalRegistros` and `totalPaginas` count the movements that match the filters, not just
 the current page.
+
+## 11. Customers (English endpoint)
+
+The basic data of a customer — contact, company, category, branch and tax data — together with the addresses registered for it.
+
+:::info Language
+This API is fully in **English** — routes and field names — like `7`, `8` and `9`.
+:::
+
+### The two keys of a customer
+
+The `customers` table carries two different keys, and the response exposes both:
+
+| Field | Column | What it is for |
+| --- | --- | --- |
+| `id` | `customers.id` | Primary key of the customer row. The addresses (`customer_addresses.customer_id`) point at this one. |
+| `customerId` | `customers.customer_id` | The id the rest of the ERP joins on: sales, payments and the account statement. `null` on customers that never got one. |
+
+:::caution The addresses do not hang off `customerId`
+Despite the name of the column, `customer_addresses.customer_id` points at `customers.id`, not at `customers.customer_id`. Use `id` to relate an address to its customer, and `customerCode` or `customerId` to relate the customer to the rest of the APIs.
+:::
+
+### Status and category
+
+| Field | Where it comes from |
+| --- | --- |
+| `statusId` / `status` | `customers.statusId` → `catEstatus`. Values in use: `1` (`ACTIVO`), `2` (`ELIMINADO`), `8` (`CANCELADO`). |
+| `categoryCode` / `category` | `customers.customer_categoryId` stores the **code** of `Customer_categories` (`C3`, `C5`, `C9`, …), not its id. Example: `C5` → `MIEMBRO`. |
+| `branchId` / `branch` | Branch of the customer, as stored on the customer row. |
+
+### 11.1 List customers
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/customers
+```
+
+```http
+GET .../api/customers?search=Martinez&onlyActive=true
+GET .../api/customers?categoryCode=C9&page=1&pageSize=20
+GET .../api/customers?city=Monterrey&includeAddresses=false
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `search` | string | No | Partial match on the customer code, name, company name, e-mail, phone (`phone` or `phoneAlt`) or tax id (RFC). |
+| `customerCode` | string | No | Exact customer code. It is unique in the catalog. |
+| `statusId` | integer | No | Status of the customer: `1` (ACTIVO), `2` (ELIMINADO) or `8` (CANCELADO). |
+| `onlyActive` | boolean | No | Shortcut for `statusId=1`. Ignored when `statusId` is sent. |
+| `categoryCode` | string | No | Category code. Example: `C5` |
+| `branchId` | integer | No | Branch of the customer. |
+| `city` | string | No | Partial match on the city of the customer. |
+| `state` | string | No | Partial match on the state of the customer. |
+| `startDate` | date | No | Customers registered on or after this day (`createdAt`). |
+| `endDate` | date | No | Customers registered on or before this day. If sent without a time part, the whole day is included. |
+| `includeAddresses` | boolean | No | Bring the addresses of every customer in the page. Default `true`; send `false` to skip them. |
+| `page` | integer | No | Page number. Default `1`. |
+| `pageSize` | integer | No | Page size. Default `50`, maximum `200`. |
+
+Customers are ordered by name.
+
+### Response
+
+```json
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 18,
+  "totalPages": 1,
+  "customers": [
+    {
+      "id": 1024,
+      "customerId": 500123,
+      "customerCode": "CUST0042",
+      "name": "Laura Martinez Rios",
+      "statusId": 1,
+      "status": "ACTIVO",
+      "phone": "8112345678",
+      "phoneAlt": null,
+      "email": "cliente@ejemplo.com",
+      "address": "Av. Constitucion 100",
+      "country": "Mexico",
+      "state": "Nuevo León",
+      "city": "Monterrey",
+      "birthDate": "1990-01-01T00:00:00",
+      "gender": "F",
+      "companyName": null,
+      "companyType": null,
+      "companySize": null,
+      "categoryCode": "C5",
+      "category": "MIEMBRO",
+      "branchId": 100,
+      "branch": "Sucursal Monterrey",
+      "assignedUserId": null,
+      "createdAt": "2026-06-16T13:40:19.583",
+      "updatedAt": "2026-06-16T13:40:19.583",
+      "tax": {
+        "invoiceRequired": true,
+        "taxId": "XAXX010101000",
+        "name": "LAURA MARTINEZ RIOS",
+        "email": "facturas@ejemplo.com",
+        "address": "Av. Constitucion 100",
+        "zipCode": "64000",
+        "regimeCode": "612",
+        "useCode": "G03",
+        "personType": "Fisica"
+      },
+      "addresses": [
+        {
+          "id": 2048,
+          "addressType": "Punto de Venta",
+          "street": "Av. Constitucion 100",
+          "neighborhood": "Centro",
+          "postalCode": "64000",
+          "city": "Monterrey",
+          "state": "Nuevo León",
+          "country": "Mexico",
+          "createdAt": "2026-06-16T13:40:19.583",
+          "updatedAt": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Fields of `customers[]`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | integer | Primary key of the customer row (`customers.id`). |
+| `customerId` | integer? | Customer id used by the rest of the ERP (`customers.customer_id`). |
+| `customerCode` | string | Customer code. |
+| `name` | string | Name of the customer. |
+| `statusId` / `status` | integer / string | Status of the customer and its name. |
+| `phone` / `phoneAlt` | string | Main and alternate phone. |
+| `email` | string | E-mail of the customer. |
+| `address` | string | Free-text address kept on the customer row itself. It is independent of `addresses[]`. |
+| `country` / `state` / `city` | string | Location of the customer. |
+| `birthDate` / `gender` | date? / string | Personal data, when captured. |
+| `companyName` / `companyType` / `companySize` | string | Company data, when the customer is a company. |
+| `categoryCode` / `category` | string | Category code and name. |
+| `branchId` / `branch` | integer? / string | Branch of the customer. |
+| `assignedUserId` | integer? | Seller the customer is assigned to. |
+| `createdAt` / `updatedAt` | datetime | Registration and last update of the customer. |
+| `tax` | object | Tax data used to invoice the customer (see below). |
+| `addresses` | array | Addresses of the customer (see below). Empty when it has none or when `includeAddresses=false`. |
+
+**Fields of `tax`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `invoiceRequired` | boolean? | Whether the customer asks for an invoice. |
+| `taxId` | string | RFC of the customer. |
+| `name` | string | Legal name for invoicing. |
+| `email` | string | E-mail where the invoices are sent. |
+| `address` | string | Tax address. |
+| `zipCode` | string | Tax postal code. |
+| `regimeCode` | string | SAT tax regime code. Example: `612` |
+| `useCode` | string | SAT CFDI use code. Example: `G03` |
+| `personType` | string | Whether the customer is a person or a company. |
+
+**Fields of `addresses[]`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | integer | Id of the address. |
+| `addressType` | string | Kind of address: `Punto de Venta`, `Envío a domicilio`, `Facturación` or `POS`. |
+| `street` | string | Street and number. |
+| `neighborhood` | string | Neighborhood (colonia). May be `null`. |
+| `postalCode` | string | Postal code. |
+| `city` / `state` / `country` | string | Location of the address. |
+| `createdAt` / `updatedAt` | datetime? | Registration and last update of the address. |
+
+:::note Compare `addressType` leniently
+`addressType` is returned exactly as stored in the ERP. A handful of old rows carry double-encoded accents (for example a broken variant of `Envío a domicilio`), so do not rely on the exact accents when matching on this field.
+:::
+
+`totalRecords` and `totalPages` count the customers that match the filters, not just the current page.
+
+### 11.2 Get a customer
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/customers/{customerCode}
+```
+
+```http
+GET .../api/customers/CUST0042
+```
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `customerCode` | string | Yes | Customer code in the path (`customers.customer_code`). Example: `CUST0042` |
+
+Returns a single customer with the same shape as an item of `customers[]` in `11.1` — without the paging envelope — and always with its addresses.
+
+:::note A wrong customer is a 404
+A `customerCode` that does not exist in `customers` returns `404` with `{ "message": "El cliente {customerCode} no existe." }`.
+:::

@@ -22,6 +22,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Pre-ordenes | Enviar solicitudes de cotizacion sin confirmar y revisarlas con detalle de stock por almacen |
 | Ventas | Detalle, totales, vendedor, pagos y estatus por almacen de las ventas registradas en BambooERP |
 | Pagos | Registrar un pago en BambooERP, opcionalmente aplicado a una venta y con los campos del documento de Kingdee, y listar los pagos registrados por estatus |
+| Clientes | Datos basicos del cliente (contacto, empresa, categoria, sucursal y datos fiscales) junto con sus direcciones registradas |
 
 ## Base URL
 
@@ -61,4 +62,6 @@ GET  /sales/{folio}
 POST /payments
 GET  /payments
 GET  /payments/{id}
+GET  /customers
+GET  /customers/{customerCode}
 ```
