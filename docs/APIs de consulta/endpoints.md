@@ -133,28 +133,43 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/precios/productos/{identificado
 
 ```json
 {
-  "productoId": "555302",
-  "codigo": "000001",
-  "nombre": "FREIDORA DE AIRE FDA07",
-  "sku": "FDA07",
+  "productoId": "1871813",
+  "codigo": "003553",
+  "nombre": "BOCINA X1",
+  "sku": "X1",
+  "descripcion": "*	Bocina mini portátil
+*	Conectividad: Bluetooth con función TWS
+*	Potencia de salida: 3W
+*	Batería: Litio 300 mAh, 3.7V
+*	Colores disponibles: Negro, rosa, morado",
   "preciosPorSucursal": [
     {
-      "sucursal": "Mexico",
-      "precioMayoreo": 560.0,
-      "precioCaja": 560.0,
+      "sucursal": "México",
+      "precioMayoreo": 21.5,
+      "precioCaja": 18.0,
       "moneda": "MXN",
       "incluyeIva": true
     },
     {
-      "sucursal": "Monterrey",
-      "precioMayoreo": 565.0,
-      "precioCaja": 565.0,
+      "sucursal": "Sucursal Monterrey",
+      "precioMayoreo": 22.0,
+      "precioCaja": 18.5,
       "moneda": "MXN",
       "incluyeIva": true
     }
   ]
 }
 ```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `productoId` | string | Internal id of the product. |
+| `codigo` | string | Internal code. |
+| `nombre` | string | Product name. |
+| `sku` | string | SKU (model). |
+| `descripcion` | string? | Product description (`starnet_products.descrip_corta`): the list of features shown on the product sheet, as a single text. It keeps the line breaks (`
+`) and the `*` bullets as they were captured in the ERP. `null` when the product has no description. |
+| `preciosPorSucursal` | array | Wholesale (`precioMayoreo`) and box (`precioCaja`) prices for the México and Monterrey branches. |
 
 ## 5. Warranty query
 
@@ -1599,9 +1614,220 @@ A `customerCode` that does not exist in `customers` returns `404` with `{ "messa
 | `abono` | decimal | Amount that pays balance. Zero on charges. |
 | `saldo` | decimal | Balance of the account after this movement, in chronological order. |
 | `estatus` | string | Status of the movement as the ledger view computes it. |
+| `pago` | object? | Detail of the payment (see below). Only on `Pago` movements; `null` on the rest. |
+| `recibosKingdee` | array | Receipts (收款单) the ERP sent to Kingdee for this movement (see below). Empty when none was sent. |
 
 `totalRegistros` and `totalPaginas` count the movements that match the filters, not just
 the current page.
+
+### Payment and receipt detail
+
+Every movement of the page carries two extra blocks. They are filled only for the movements
+of the requested page, not for the whole history.
+
+- **`pago`** — on `Pago` movements: the same data the ERP shows on its *Información del
+  Pago* screen (bank, account number, CLABE, payment method, reference, quotation, who
+  uploaded and validated it), plus the leftovers the payment generated and the sales the
+  money was applied to.
+- **`recibosKingdee`** — the receipts (收款单, `CreateARReceiveBill`) exactly as the ERP sent
+  them, read from the send queue: header, status of the send, the `SKD...` folio Kingdee
+  returned and every line (`carts[]`).
+  - On a **sale** (`Venta`, `Credito`, `Venta POS`): the receipts tied to the sale folio
+    (`verify_no`), with all their lines.
+  - On a **payment**: the receipts where that payment traveled, with **only the lines of
+    that payment**. A receipt usually carries several payments, so `total` is the sum of
+    the lines returned, not the total of the receipt.
+
+:::caution Leftovers travel under their own folio
+When a payment is larger than the sale, the ERP creates a *leftover* payment
+(`Payments.OriginPaymentId`) with the remainder, and that leftover is what gets applied to the
+next sale. Its lines in Kingdee carry the **leftover folio** in `memo`, not the folio of the
+original payment. The statement does not list leftovers as movements, so they come inside
+`pago.sobrantes`, and `recibosKingdee` of the original payment already includes the lines of
+all its leftovers.
+:::
+
+:::note Receipts sent before the queue kept the document
+The oldest receipts (before the queue started saving what it sent) come with
+`tieneDetalle: false`: only the `SKD` folio, the sale, the status and the dates are known, and
+the header fields and `renglones` come empty.
+:::
+
+**Example** — a `Pago` movement of 90,000 whose leftover was applied to another sale:
+
+```json
+{
+  "fecha": "2026-09-21T11:06:46.777",
+  "tipo": "Pago",
+  "concepto": "Pago Cuenta.",
+  "documento": "PAY-0926-004439",
+  "cargo": 0.00,
+  "abono": 90000.00,
+  "saldo": 82427.50,
+  "estatus": "Aplicado",
+  "pago": {
+    "id": 66299,
+    "folio": "PAY-0926-004439",
+    "monto": 90000.00,
+    "fechaPago": "2026-09-19T00:00:00",
+    "fechaRegistro": "2026-09-21T11:06:46.777",
+    "fechaRevision": "2026-09-21T11:11:55.877",
+    "fechaCancelacion": null,
+    "tipoPago": "payment",
+    "formaPagoCodigo": "01",
+    "formaPago": "Deposito en efectivo",
+    "formaPagoCodigoKingdee": "JSFS04_SYS",
+    "banco": "BBVA",
+    "numeroCuenta": "0113216772",
+    "clabe": "012320001132167724",
+    "cuenta": "MASSIVE HOME SA DE CV",
+    "referencia": "000054632",
+    "estatus": "Valido",
+    "departamento": "Rutas",
+    "cotizacion": "2609-02728",
+    "cotizacionTotal": 168018.00,
+    "subidoPor": "Seller Name",
+    "validadoPor": "Finance Name",
+    "rechazadoPor": null,
+    "ultimaActualizacionPor": "Finance Name",
+    "comentarios": "2609-02728 BBVA $90,000.00 (19-09-26)",
+    "observaciones": "CONFIRMADO",
+    "sobrantes": [
+      {
+        "id": 66619,
+        "folio": "PAY-0926-004759",
+        "monto": 45556.00,
+        "fechaRegistro": "2026-09-22T10:46:58.063",
+        "pagoOrigen": "PAY-0926-004439"
+      }
+    ],
+    "aplicaciones": [
+      {
+        "folioPago": "PAY-0926-004439",
+        "cotizacion": "2609-02728",
+        "venta": "XSCKD218937",
+        "esPos": false,
+        "monto": 38924.00,
+        "fecha": "2026-09-22T10:41:53.18"
+      },
+      {
+        "folioPago": "PAY-0926-004759",
+        "cotizacion": "2609-02944",
+        "venta": "XSCKD218942",
+        "esPos": false,
+        "monto": 13800.00,
+        "fecha": "2026-09-22T10:50:24.383"
+      }
+    ]
+  },
+  "recibosKingdee": [
+    {
+      "folio": "SKD00166573",
+      "origen": "Venta",
+      "estatusEnvio": "Enviado",
+      "error": null,
+      "intentos": 1,
+      "fechaRegistro": "2026-09-22T10:43:31.453",
+      "fechaEnvio": "2026-09-22T10:43:33.203",
+      "venta": "XSCKD218937",
+      "tieneDetalle": true,
+      "fechaDocumento": "2026-09-21",
+      "fechaValor": "2026-09-21",
+      "organizacion": "801",
+      "sucursal": "801.01.01",
+      "departamento": "801010102",
+      "moneda": "PRE008",
+      "codigoCliente": "CUST0017",
+      "socio": "CUST0017",
+      "nombreSocio": "CUSTOMER NAME",
+      "comentario": "PAY-0926-004437, PAY-0926-004438, PAY-0926-004439",
+      "total": 38924.00,
+      "renglones": [
+        {
+          "folioPago": "PAY-0926-004439",
+          "formaLiquidacion": "JSFS04_SYS",
+          "cuentaBancaria": "012320001132167724",
+          "cuentaEfectivo": null,
+          "cuentaInterna": "REGIONES",
+          "monto": 38924.00,
+          "comision": 0.00,
+          "diferencia": 0.00,
+          "referencia": "000054632"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Fields of `pago`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | integer | Id of the payment (`Payments.Id`). |
+| `folio` | string | Folio of the payment (`PAY-MMYY-NNNNNN`). |
+| `monto` | decimal | Amount of the payment. |
+| `fechaPago` | datetime? | Date of the deposit or transfer, as stated in the voucher. |
+| `fechaRegistro` | datetime? | When the payment was uploaded to the ERP. |
+| `fechaRevision` | datetime? | When finance reviewed it. `null` if not reviewed yet. |
+| `fechaCancelacion` | datetime? | When it was cancelled. |
+| `tipoPago` | string? | Payment type of the ERP (`Payments.PaymentType`). |
+| `formaPagoCodigo` | string? | SAT code of the payment method. Example: `01` |
+| `formaPago` | string? | Payment method. Example: `Deposito en efectivo` |
+| `formaPagoCodigoKingdee` | string? | Code of the payment method in the Kingdee receipt (`SettleType_code`) according to **today's** catalog. What was actually sent is in `recibosKingdee[].renglones[].formaLiquidacion`. |
+| `banco` | string? | Bank. |
+| `numeroCuenta` | string? | Account number of the bank. |
+| `clabe` | string? | CLABE of the bank. |
+| `cuenta` | string? | Company that receives the money. Example: `MASSIVE HOME SA DE CV` |
+| `referencia` | string? | Bank reference. |
+| `estatus` | string? | Status of the payment in the ERP. Example: `Valido` |
+| `departamento` | string? | Department of the payment. |
+| `cotizacion` | string? | Folio of the quotation the payment was uploaded to. Example: `2609-02728` |
+| `cotizacionTotal` | decimal? | Total of that quotation. |
+| `subidoPor` / `validadoPor` / `rechazadoPor` / `ultimaActualizacionPor` | string? | Users who uploaded, validated, declined and last updated the payment. |
+| `comentarios` / `observaciones` | string? | Free text captured on the payment. |
+| `sobrantes[]` | array | Leftover payments born from this one, at every level of the chain: `id`, `folio`, `monto`, `fechaRegistro` and `pagoOrigen` (folio of the payment it was born from). |
+| `aplicaciones[]` | array | Sales the money was applied to, from this payment and its leftovers: `folioPago` (the payment or leftover applied), `cotizacion`, `venta` (`XSCKD...` or POS ticket; `null` if the sale is not in Kingdee yet), `esPos`, `monto` and `fecha`. |
+
+**Fields of `recibosKingdee[]`:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `folio` | string? | Folio of the receipt in Kingdee (`SKD...`). `null` if Kingdee did not create it. |
+| `origen` | string | `Venta` (payment of a quotation), `Venta POS` (payments linked to a counter ticket) or `Credito` (payment of a credit sale). |
+| `estatusEnvio` | string | `Pendiente`, `Procesando`, `Enviado`, `Fallido`, `Inconsistente` or `Omitido` (the sale had no payments to send). |
+| `error` | string? | Last rejection message from Kingdee, if any. |
+| `intentos` | integer | Send attempts. |
+| `fechaRegistro` | datetime? | When the receipt entered the queue. |
+| `fechaEnvio` | datetime? | When Kingdee accepted it. `null` unless `estatusEnvio` is `Enviado`. |
+| `venta` | string? | Sale the receipt is tied to (`verify_no`). |
+| `tieneDetalle` | boolean | `false` on receipts sent before the queue saved the document; the fields below come empty. |
+| `fechaDocumento` | string? | `bill_date`. |
+| `fechaValor` | string? | `value_date`. |
+| `organizacion` | string? | `branch_code`. Example: `801` |
+| `sucursal` | string? | `settle_branch_code`. Example: `801.01.01` |
+| `departamento` | string? | `dept_code`. |
+| `moneda` | string? | `currency_code`. |
+| `codigoCliente` | string? | `customer_code`: the customer, or the branch on store sales. |
+| `socio` | string? | `member_card_no`: the customer code of the ERP. |
+| `nombreSocio` | string? | `member_name`. |
+| `comentario` | string? | `remark`: folios of the payments of the receipt. |
+| `total` | decimal | Sum of the lines returned. |
+| `renglones[]` | array | Lines (`carts[]`) of the receipt, see below. |
+
+**Fields of `recibosKingdee[].renglones[]`:**
+
+| Field | Kingdee field | Description |
+| --- | --- | --- |
+| `folioPago` | `memo` | Folio of the payment applied (or of its leftover). |
+| `formaLiquidacion` | `SettleType_code` | Settlement type. Example: `JSFS04_SYS` |
+| `cuentaBancaria` | `receive_bank_account` | CLABE, or the fixed account of the branch. Empty on cash. |
+| `cuentaEfectivo` | `receive_cash_account` | Cash account of the department. Empty when there is a bank. |
+| `cuentaInterna` | `inner_account_no` | Internal account of the department. |
+| `monto` | `Amount` | Amount of the line. |
+| `comision` | `handling_charge_fee` | Handling fee. |
+| `diferencia` | `over_under_amount` | Over/under amount. |
+| `referencia` | `reference` | Bank reference of the payment. |
 
 ## 11. Customers (English endpoint)
 

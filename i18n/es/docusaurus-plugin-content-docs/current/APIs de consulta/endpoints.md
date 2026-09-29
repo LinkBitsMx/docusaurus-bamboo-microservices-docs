@@ -133,28 +133,43 @@ GET https://bamboonetapi.ddns.net/api/precios/productos/{identificador}
 
 ```json
 {
-  "productoId": "555302",
-  "codigo": "000001",
-  "nombre": "FREIDORA DE AIRE FDA07",
-  "sku": "FDA07",
+  "productoId": "1871813",
+  "codigo": "003553",
+  "nombre": "BOCINA X1",
+  "sku": "X1",
+  "descripcion": "*	Bocina mini portátil
+*	Conectividad: Bluetooth con función TWS
+*	Potencia de salida: 3W
+*	Batería: Litio 300 mAh, 3.7V
+*	Colores disponibles: Negro, rosa, morado",
   "preciosPorSucursal": [
     {
-      "sucursal": "Mexico",
-      "precioMayoreo": 560.0,
-      "precioCaja": 560.0,
+      "sucursal": "México",
+      "precioMayoreo": 21.5,
+      "precioCaja": 18.0,
       "moneda": "MXN",
       "incluyeIva": true
     },
     {
-      "sucursal": "Monterrey",
-      "precioMayoreo": 565.0,
-      "precioCaja": 565.0,
+      "sucursal": "Sucursal Monterrey",
+      "precioMayoreo": 22.0,
+      "precioCaja": 18.5,
       "moneda": "MXN",
       "incluyeIva": true
     }
   ]
 }
 ```
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `productoId` | string | Id interno del producto. |
+| `codigo` | string | Codigo interno. |
+| `nombre` | string | Nombre del producto. |
+| `sku` | string | SKU (modelo). |
+| `descripcion` | string? | Descripcion del producto (`starnet_products.descrip_corta`): la lista de caracteristicas de la ficha del producto, en un solo texto. Conserva los saltos de linea (`
+`) y las viñetas `*` tal como se capturaron en el ERP. `null` cuando el producto no tiene descripcion. |
+| `preciosPorSucursal` | array | Precio de mayoreo (`precioMayoreo`) y de caja (`precioCaja`) en las sucursales México y Monterrey. |
 
 ## 5. Consulta de garantia
 
@@ -1467,6 +1482,329 @@ Todos los filtros viajan en el **query string**. Esto es un `GET`: los filtros m
 :::note Un resultado vacio tambien es una respuesta valida
 Un filtro que no matchea nada regresa `totalRecords: 0` con `sales` y `byCustomer` vacios y todos los promedios de `summary` en `null`. El endpoint lee `kingdee_sales_invoices`, `PaymentApplications`, `Payments`, `CreditLines` y `credits`; en un ambiente donde `kingdee_sales_invoices` este vacia regresa cero ventas, lo que significa que ahi no hay ventas a credito que reportar — no que el endpoint haya fallado.
 :::
+
+## 10. Estado de cuenta del cliente
+
+El estado de cuenta de un cliente: los mismos datos que muestra el ERP en su pantalla del cliente — un resumen con los saldos de la cuenta y los movimientos, cada uno con su cargo, su abono y el saldo corrido despues de el. Cada pago trae ademas su detalle y los recibos de cobro (收款单) que se mandaron a Kingdee.
+
+:::info Idioma
+Este endpoint refleja la pantalla del ERP, asi que la ruta y los nombres de los campos del JSON estan en **espanol** — a diferencia de `7`, `8` y `9`, que estan completamente en ingles.
+:::
+
+### Como se arma el estado de cuenta
+
+El endpoint lee las mismas fuentes que la pantalla del ERP y su exportacion a Excel, asi que las cifras nunca discrepan de lo que ve el usuario en el ERP:
+
+- **Movimientos:** los renglones de `dbo.vw_customer_ledger` del cliente — ventas de contado y a credito, todos los pagos, devoluciones, ventas POS, saldos a favor de garantias y aplicaciones de cupones — con el saldo corrido ya acumulado en orden cronologico sobre **toda** la historia del cliente. Los filtros `desde`/`hasta` y `buscar` solo acotan lo que se muestra: el saldo de cada renglon es el saldo real de la cuenta en ese momento, no el acumulado del rango filtrado.
+- **Filtro de renglones:** igual que la pantalla del ERP y su exportacion a Excel, se omiten los renglones de `Pago (sobrante)`, los renglones en cero (`cargo = 0` y `abono = 0`) y los pagos derivados de otro pago (`Payments.OriginPaymentId <> 0`).
+- **Orden:** los mas recientes primero (`fecha DESC, source_id DESC`), el mismo orden de la pantalla del ERP.
+
+La vista marca cada renglon con un `tipo`:
+
+| Tipo | Cargo / abono |
+| --- | --- |
+| `Venta` (contado) y `Credito` | Cargo por el `bill_total_amount` de `kingdee_sales_invoices`. |
+| `Venta POS` | Cargo por el total de la venta POS (`KingDeeSalesPOS`). |
+| `Pago` (cuenta, anticipo o credito) | Abono por el monto del pago (`Payments`). |
+| `Devolucion` | Cargo por el monto devuelto (`PaymentRefunds`). |
+| `Saldo a Favor. (Garantias)` / `Cupon. (Garantias)` | Abono por el saldo a favor o el cupon emitido. |
+| `Aplicacion Nota Garantia` / `Aplicacion Nota Garantia SF` | Cargo cuando se aplica un cupon o un saldo a favor. |
+
+### Resumen
+
+El bloque `resumen` trae las mismas tarjetas de la pantalla del ERP, calculadas por el mismo stored procedure (`dbo.spGetKpisCustomer`), sobre toda la historia del cliente (no el rango filtrado):
+
+| Campo | De donde sale |
+| --- | --- |
+| `totalCompras` | Total facturado al cliente (`kpi_total`). |
+| `saldoAFavor` | Saldo a favor disponible: saldos de garantias sin aplicar, sobrantes de pedidos ya facturados, anticipos sin aplicar y cupones vigentes (`kpi_favor`). |
+| `creditoUsado` | Credito usado segun `vw_credits` (`kpi_credito_usado`). Cero si el cliente no tiene linea de credito. |
+| `creditoDisponible` | Linea de credito menos credito usado (`kpi_credito_dispo`). |
+| `lineaCredito` | Linea de credito autorizada (`kpi_credito_linea`). |
+| `saldoActual` | Saldo corrido de la cuenta (`kpi_saldo_act`): positivo si el cliente debe, negativo si los pagos superan lo facturado. |
+
+### 10.1 Consultar el estado de cuenta de un cliente
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/estado-cuenta/{customerCode}
+```
+
+```http
+GET .../api/estado-cuenta/CUST0017
+GET .../api/estado-cuenta/CUST0017?desde=2026-05-01&hasta=2026-05-31
+GET .../api/estado-cuenta/CUST0017?buscar=XSCKD16&pagina=1&tamanoPagina=10
+GET .../api/estado-cuenta/CUST0017?buscar=PAY-0926-004439
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `customerCode` | string | Si | Codigo del cliente en la ruta (`customers.customer_code`). Ejemplo: `CUST0017` |
+| `desde` | date | No | Limite inferior sobre la fecha del movimiento. Ejemplo: `2026-05-01` |
+| `hasta` | date | No | Limite superior sobre la fecha del movimiento. Si se manda sin hora, incluye el dia completo. |
+| `buscar` | string | No | Coincidencia parcial sobre el documento, el concepto, el tipo o el estatus. |
+| `pagina` | integer | No | Numero de pagina. Default `1`. |
+| `tamanoPagina` | integer | No | Tamano de pagina. Default `50`, maximo `200`. |
+
+:::note Un cliente equivocado es un 404
+Un `customerCode` que no existe en `customers` regresa `404` con `{ "message": "El cliente {customerCode} no existe." }`.
+:::
+
+### Respuesta
+
+```json
+{
+  "codigoCliente": "CUST0017",
+  "cliente": "ITBS S.A. DE C.V.",
+  "resumen": {
+    "totalCompras": 54400.00,
+    "saldoAFavor": 0.00,
+    "creditoUsado": 2811865.00,
+    "creditoDisponible": 188135.00,
+    "lineaCredito": 3000000.00,
+    "saldoActual": 0.00
+  },
+  "pagina": 1,
+  "tamanoPagina": 50,
+  "totalRegistros": 2,
+  "totalPaginas": 1,
+  "movimientos": [
+    {
+      "fecha": "2026-05-30T12:44:49.483",
+      "tipo": "Credito",
+      "concepto": "Credito",
+      "documento": "XSCKD166673",
+      "cargo": 54400.00,
+      "abono": 0.00,
+      "saldo": 54400.00,
+      "estatus": "FINALIZADO",
+      "pago": null,
+      "recibosKingdee": []
+    },
+    {
+      "fecha": "2026-06-04T10:12:00",
+      "tipo": "Pago",
+      "concepto": "Pago Cuenta.",
+      "documento": "PAY-0626-000900",
+      "cargo": 0.00,
+      "abono": 54400.00,
+      "saldo": 0.00,
+      "estatus": "Aplicado",
+      "pago": { "...": "ver Detalle del pago y de los recibos" },
+      "recibosKingdee": []
+    }
+  ]
+}
+```
+
+**Campos de `movimientos[]`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `fecha` | datetime? | Fecha del movimiento; `null` en movimientos sin fecha (p. ej. saldos a favor aplicados). |
+| `tipo` | string | Tipo de la vista: `Venta`, `Credito`, `Pago`, `Venta POS`, `Devolucion`, `Saldo a Favor. (Garantias)`, `Cupon. (Garantias)`, `Aplicacion Nota Garantia` o `Aplicacion Nota Garantia SF`. |
+| `concepto` | string | Concepto del movimiento (p. ej. `Pago Anticipo.`, `Pago Cuenta.`, `Credito`). |
+| `documento` | string | Folio del documento: `bill_code`, folio del pago, ticket POS o cupon. |
+| `cargo` | decimal | Importe que carga saldo. Cero en los abonos. |
+| `abono` | decimal | Importe que abona saldo. Cero en los cargos. |
+| `saldo` | decimal | Saldo de la cuenta despues de este movimiento, en orden cronologico. |
+| `estatus` | string | Estatus del movimiento segun la vista. |
+| `pago` | object? | Detalle del pago (ver abajo). Solo en movimientos `Pago`; `null` en los demas. |
+| `recibosKingdee` | array | Recibos de cobro (收款单) que el ERP mando a Kingdee por este movimiento (ver abajo). Vacio si no se mando ninguno. |
+
+`totalRegistros` y `totalPaginas` cuentan los movimientos que cumplen los filtros, no solo la pagina actual.
+
+### Detalle del pago y de los recibos
+
+Cada movimiento de la pagina trae dos bloques extra. Solo se llenan para los movimientos de la pagina pedida, no para toda la historia.
+
+- **`pago`** — en los movimientos `Pago`: los mismos datos de la pantalla *Informacion del Pago* del ERP (banco, numero de cuenta, CLABE, metodo de pago, referencia, cotizacion, quien lo subio y quien lo valido), mas los sobrantes que genero el pago y las ventas donde se aplico el dinero.
+- **`recibosKingdee`** — los recibos de cobro (收款单, `CreateARReceiveBill`) tal como el ERP los mando, leidos de la cola de envios: encabezado, estatus del envio, el folio `SKD...` que regreso Kingdee y cada renglon (`carts[]`).
+  - En una **venta** (`Venta`, `Credito`, `Venta POS`): los recibos amarrados al folio de la venta (`verify_no`), con todos sus renglones.
+  - En un **pago**: los recibos donde viajo ese pago, con **solo los renglones de ese pago**. Un recibo suele llevar varios pagos, asi que `total` es la suma de los renglones que regresan, no el total del recibo.
+
+:::caution Los sobrantes viajan con su propio folio
+Cuando un pago es mayor que la venta, el ERP crea un pago de *sobrante* (`Payments.OriginPaymentId`) con el remanente, y ese sobrante es el que se aplica a la siguiente venta. Sus renglones en Kingdee llevan en `memo` el **folio del sobrante**, no el del pago original. El estado de cuenta no lista los sobrantes como movimientos, asi que vienen dentro de `pago.sobrantes`, y los `recibosKingdee` del pago original ya incluyen los renglones de todos sus sobrantes.
+:::
+
+:::note Recibos anteriores a que la cola guardara el documento
+Los recibos mas viejos (de antes de que la cola guardara lo que mandaba) llegan con `tieneDetalle: false`: solo se conocen el folio `SKD`, la venta, el estatus y las fechas; los campos del encabezado y los `renglones` llegan vacios.
+:::
+
+**Ejemplo** — un movimiento `Pago` de 90,000 cuyo sobrante se aplico a otra venta:
+
+```json
+{
+  "fecha": "2026-09-21T11:06:46.777",
+  "tipo": "Pago",
+  "concepto": "Pago Cuenta.",
+  "documento": "PAY-0926-004439",
+  "cargo": 0.00,
+  "abono": 90000.00,
+  "saldo": 82427.50,
+  "estatus": "Aplicado",
+  "pago": {
+    "id": 66299,
+    "folio": "PAY-0926-004439",
+    "monto": 90000.00,
+    "fechaPago": "2026-09-19T00:00:00",
+    "fechaRegistro": "2026-09-21T11:06:46.777",
+    "fechaRevision": "2026-09-21T11:11:55.877",
+    "fechaCancelacion": null,
+    "tipoPago": "payment",
+    "formaPagoCodigo": "01",
+    "formaPago": "Deposito en efectivo",
+    "formaPagoCodigoKingdee": "JSFS04_SYS",
+    "banco": "BBVA",
+    "numeroCuenta": "0113216772",
+    "clabe": "012320001132167724",
+    "cuenta": "MASSIVE HOME SA DE CV",
+    "referencia": "000054632",
+    "estatus": "Valido",
+    "departamento": "Rutas",
+    "cotizacion": "2609-02728",
+    "cotizacionTotal": 168018.00,
+    "subidoPor": "Nombre del vendedor",
+    "validadoPor": "Nombre de finanzas",
+    "rechazadoPor": null,
+    "ultimaActualizacionPor": "Nombre de finanzas",
+    "comentarios": "2609-02728 BBVA $90,000.00 (19-09-26)",
+    "observaciones": "CONFIRMADO",
+    "sobrantes": [
+      {
+        "id": 66619,
+        "folio": "PAY-0926-004759",
+        "monto": 45556.00,
+        "fechaRegistro": "2026-09-22T10:46:58.063",
+        "pagoOrigen": "PAY-0926-004439"
+      }
+    ],
+    "aplicaciones": [
+      {
+        "folioPago": "PAY-0926-004439",
+        "cotizacion": "2609-02728",
+        "venta": "XSCKD218937",
+        "esPos": false,
+        "monto": 38924.00,
+        "fecha": "2026-09-22T10:41:53.18"
+      },
+      {
+        "folioPago": "PAY-0926-004759",
+        "cotizacion": "2609-02944",
+        "venta": "XSCKD218942",
+        "esPos": false,
+        "monto": 13800.00,
+        "fecha": "2026-09-22T10:50:24.383"
+      }
+    ]
+  },
+  "recibosKingdee": [
+    {
+      "folio": "SKD00166573",
+      "origen": "Venta",
+      "estatusEnvio": "Enviado",
+      "error": null,
+      "intentos": 1,
+      "fechaRegistro": "2026-09-22T10:43:31.453",
+      "fechaEnvio": "2026-09-22T10:43:33.203",
+      "venta": "XSCKD218937",
+      "tieneDetalle": true,
+      "fechaDocumento": "2026-09-21",
+      "fechaValor": "2026-09-21",
+      "organizacion": "801",
+      "sucursal": "801.01.01",
+      "departamento": "801010102",
+      "moneda": "PRE008",
+      "codigoCliente": "CUST0017",
+      "socio": "CUST0017",
+      "nombreSocio": "NOMBRE DEL CLIENTE",
+      "comentario": "PAY-0926-004437, PAY-0926-004438, PAY-0926-004439",
+      "total": 38924.00,
+      "renglones": [
+        {
+          "folioPago": "PAY-0926-004439",
+          "formaLiquidacion": "JSFS04_SYS",
+          "cuentaBancaria": "012320001132167724",
+          "cuentaEfectivo": null,
+          "cuentaInterna": "REGIONES",
+          "monto": 38924.00,
+          "comision": 0.00,
+          "diferencia": 0.00,
+          "referencia": "000054632"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Campos de `pago`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `id` | integer | Id del pago (`Payments.Id`). |
+| `folio` | string | Folio del pago (`PAY-MMYY-NNNNNN`). |
+| `monto` | decimal | Monto del pago. |
+| `fechaPago` | datetime? | Fecha del deposito o transferencia segun el comprobante. |
+| `fechaRegistro` | datetime? | Cuando se subio el pago al ERP. |
+| `fechaRevision` | datetime? | Cuando lo reviso finanzas. `null` si todavia no se revisa. |
+| `fechaCancelacion` | datetime? | Cuando se cancelo. |
+| `tipoPago` | string? | Tipo de pago del ERP (`Payments.PaymentType`). |
+| `formaPagoCodigo` | string? | Codigo SAT de la forma de pago. Ejemplo: `01` |
+| `formaPago` | string? | Forma de pago. Ejemplo: `Deposito en efectivo` |
+| `formaPagoCodigoKingdee` | string? | Codigo de la forma de pago en el recibo de Kingdee (`SettleType_code`) segun el catalogo de **hoy**. Lo que se mando de verdad esta en `recibosKingdee[].renglones[].formaLiquidacion`. |
+| `banco` | string? | Banco. |
+| `numeroCuenta` | string? | Numero de cuenta del banco. |
+| `clabe` | string? | CLABE del banco. |
+| `cuenta` | string? | Razon social que recibe el dinero. Ejemplo: `MASSIVE HOME SA DE CV` |
+| `referencia` | string? | Referencia bancaria. |
+| `estatus` | string? | Estatus del pago en el ERP. Ejemplo: `Valido` |
+| `departamento` | string? | Departamento del pago. |
+| `cotizacion` | string? | Folio de la cotizacion a la que se subio el pago. Ejemplo: `2609-02728` |
+| `cotizacionTotal` | decimal? | Total de esa cotizacion. |
+| `subidoPor` / `validadoPor` / `rechazadoPor` / `ultimaActualizacionPor` | string? | Usuarios que subieron, validaron, rechazaron y actualizaron por ultima vez el pago. |
+| `comentarios` / `observaciones` | string? | Texto libre capturado en el pago. |
+| `sobrantes[]` | array | Pagos de sobrante que nacieron de este, de todos los niveles de la cadena: `id`, `folio`, `monto`, `fechaRegistro` y `pagoOrigen` (folio del pago del que nacio). |
+| `aplicaciones[]` | array | Ventas donde se aplico el dinero, de este pago y de sus sobrantes: `folioPago` (el pago o sobrante que se aplico), `cotizacion`, `venta` (`XSCKD...` o ticket POS; `null` si la venta aun no esta en Kingdee), `esPos`, `monto` y `fecha`. |
+
+**Campos de `recibosKingdee[]`:**
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `folio` | string? | Folio del recibo en Kingdee (`SKD...`). `null` si Kingdee no lo creo. |
+| `origen` | string | `Venta` (cobro de una cotizacion), `Venta POS` (pagos vinculados a un ticket de mostrador) o `Credito` (abono a una venta a credito). |
+| `estatusEnvio` | string | `Pendiente`, `Procesando`, `Enviado`, `Fallido`, `Inconsistente` u `Omitido` (la venta no tenia pagos que mandar). |
+| `error` | string? | Ultimo mensaje de rechazo de Kingdee, si lo hubo. |
+| `intentos` | integer | Intentos de envio. |
+| `fechaRegistro` | datetime? | Cuando el recibo entro a la cola. |
+| `fechaEnvio` | datetime? | Cuando Kingdee lo acepto. `null` si `estatusEnvio` no es `Enviado`. |
+| `venta` | string? | Venta a la que se amarra el recibo (`verify_no`). |
+| `tieneDetalle` | boolean | `false` en recibos mandados antes de que la cola guardara el documento; los campos de abajo llegan vacios. |
+| `fechaDocumento` | string? | `bill_date`. |
+| `fechaValor` | string? | `value_date`. |
+| `organizacion` | string? | `branch_code`. Ejemplo: `801` |
+| `sucursal` | string? | `settle_branch_code`. Ejemplo: `801.01.01` |
+| `departamento` | string? | `dept_code`. |
+| `moneda` | string? | `currency_code`. |
+| `codigoCliente` | string? | `customer_code`: el cliente, o la sucursal en las ventas de tienda. |
+| `socio` | string? | `member_card_no`: el codigo del cliente del ERP. |
+| `nombreSocio` | string? | `member_name`. |
+| `comentario` | string? | `remark`: folios de los pagos del recibo. |
+| `total` | decimal | Suma de los renglones que regresan. |
+| `renglones[]` | array | Renglones (`carts[]`) del recibo, ver abajo. |
+
+**Campos de `recibosKingdee[].renglones[]`:**
+
+| Campo | Campo en Kingdee | Descripcion |
+| --- | --- | --- |
+| `folioPago` | `memo` | Folio del pago aplicado (o de su sobrante). |
+| `formaLiquidacion` | `SettleType_code` | Forma de liquidacion. Ejemplo: `JSFS04_SYS` |
+| `cuentaBancaria` | `receive_bank_account` | CLABE, o la cuenta fija de la sucursal. Vacia en efectivo. |
+| `cuentaEfectivo` | `receive_cash_account` | Cuenta de efectivo del departamento. Vacia cuando hay banco. |
+| `cuentaInterna` | `inner_account_no` | Cuenta interna del departamento. |
+| `monto` | `Amount` | Monto del renglon. |
+| `comision` | `handling_charge_fee` | Comision. |
+| `diferencia` | `over_under_amount` | Diferencia. |
+| `referencia` | `reference` | Referencia bancaria del pago. |
 
 ## 11. Clientes (endpoint en ingles)
 

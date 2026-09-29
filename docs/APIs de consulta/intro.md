@@ -17,13 +17,13 @@ These APIs let external systems query BambooERP information without accessing th
 | Order query | General order information by folio |
 | Order status | Current progress of the order in the operational process |
 | Shipment query | Internal orders for a folio, with carrier and grouped tracking guides |
-| Product prices | Price by internal code or SKU, separated by branch |
+| Product prices | Price by internal code or SKU, separated by branch, together with the product description |
 | Warranty query | Products and status associated with a warranty ticket folio |
 | Pre-orders | Submit unconfirmed quotation requests and review them with per-warehouse stock detail |
 | Sales | Detail, totals, seller, payments and per-warehouse status of the sales registered in BambooERP |
 | Payments | Register a payment in BambooERP, optionally applied to a sale and carrying the fields of the Kingdee document, and list the registered payments by status |
 | Credit sales | The sales that went on credit, each one with the payments applied against it, plus the collection metrics of the whole filtered set |
-| Customer account statement | Balances of the customer account and its movements: charges, payments and running balance |
+| Customer account statement | Balances of the customer account and its movements (charges, payments and running balance), with the detail of each payment and the receipts sent to Kingdee |
 | Customers | Basic data of a customer (contact, company, category, branch and tax data) together with its registered addresses |
 
 ## Base URL
