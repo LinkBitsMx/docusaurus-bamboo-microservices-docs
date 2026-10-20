@@ -19,7 +19,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Consulta de envio | Pedidos internos del folio, con paqueteria y guias agrupadas |
 | Precios de producto | Precio por codigo interno o SKU, separado por sucursal, junto con la descripcion del producto |
 | Consulta de garantia | Productos y estatus asociados a un folio de garantia |
-| Pre-ordenes | Enviar solicitudes de cotizacion sin confirmar y revisarlas con detalle de stock por almacen |
+| Pre-ordenes | Enviar solicitudes de cotizacion sin confirmar, con su metodo de entrega, domicilio y formas de pago, y revisarlas con detalle de stock por almacen |
 | Ventas | Detalle, totales, vendedor, pagos y estatus por almacen de las ventas registradas en BambooERP |
 | Pagos | Registrar un pago en BambooERP, opcionalmente aplicado a una venta y con los campos del documento de Kingdee, y listar los pagos registrados por estatus |
 | Ventas a credito | Las ventas que se fueron a credito, cada una con los abonos aplicados, mas las metricas de cobranza del conjunto filtrado |
@@ -58,6 +58,7 @@ GET  /garantias/{folioTicket}
 POST /PreOrdenes
 GET  /PreOrdenes
 GET  /PreOrdenes/{id}
+GET  /PreOrdenes/opciones-entrega
 GET  /preorders/detail
 GET  /sales
 GET  /sales/{folio}

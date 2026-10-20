@@ -10,6 +10,7 @@ title: Errores y preguntas frecuentes
 | Codigo | Significado | Respuesta recomendada |
 | --- | --- | --- |
 | `200` | Consulta exitosa | Procesar la respuesta JSON |
+| `400` | Los datos enviados en un `POST` no son validos | Leer `message`, corregir los datos y volver a enviar |
 | `401` | API Key ausente o invalida | Revisar credenciales |
 | `404` | Recurso no encontrado | Validar folio, SKU o ticket |
 | `500` | Error interno | Reportar a soporte con datos de la peticion |
@@ -67,6 +68,14 @@ Cada item de una pre-orden se enriquece con el stock entregable (`deliverable_qt
 - `DISTRIBUIR` / `DISTRIBUTE` — hay stock total suficiente, pero repartido en varios almacenes.
 - `AGOTADO_PARCIAL` / `PARTIALLY_COVERED` — hay algo de stock, pero no alcanza para toda la cantidad.
 - `SIN_STOCK` / `OUT_OF_STOCK` — ningun almacen de venta tiene existencia.
+
+### Por que "Entrega a Domicilio" se envia como `PAQUETERIA`?
+
+ERP-MX tiene tres formas de entrega: recoleccion (`RECOLECCION`), paqueterias (`PAQUETERIA`) y fleteras (`FLETERA`). Nuestra entrega a domicilio es uno de los servicios de paqueteria, asi que se envia como `PAQUETERIA` con `deliveryServiceId: 4`. Usa `GET /api/PreOrdenes/opciones-entrega?postalCode=...` para ver que paqueterias cubren el codigo postal del cliente.
+
+### Los pagos de la pre-orden se registran en BambooERP?
+
+No. `payments` guarda lo que el cliente dice que va a pagar. Cuando se aprueba la pre-orden, esos pagos se escriben en el comentario de la cotizacion, y el pago se registra despues con su comprobante, como siempre.
 
 ### Por que `/api/preorders/detail` esta en ingles y los demas endpoints de pre-orden en espanol?
 

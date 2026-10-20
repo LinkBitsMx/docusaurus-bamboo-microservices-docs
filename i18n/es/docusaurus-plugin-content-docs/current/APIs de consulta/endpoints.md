@@ -219,6 +219,27 @@ POST https://bamboonetapi.ddns.net/api/PreOrdenes
 | `items[].productCode` | string | Si | Codigo de producto o SKU. Max 50 caracteres. |
 | `items[].quantity` | integer | Si | Debe ser mayor a cero. |
 | `items[].unitPrice` | decimal | Si | No puede ser negativo. |
+| `branchCode` | string | Condicional | Sucursal del pedido: `departments.code` (por ejemplo `801010306`, Sucursal Izazaga). Debe existir. Obligatorio cuando `deliveryMethod` es `RECOLECCION`. |
+| `deliveryMethod` | string | No | `RECOLECCION`, `PAQUETERIA` o `FLETERA`. Ver [Entrega, domicilio y pago](#entrega-domicilio-y-pago). |
+| `deliveryServiceId` | integer | Condicional | Servicio de paqueteria. Obligatorio con `PAQUETERIA` y solo se acepta con ella. |
+| `fleteraCode` | string | Condicional | Codigo de la fletera. Obligatorio con `FLETERA` y solo se acepta con ella. Max 50 caracteres. |
+| `shippingAddress` | object | Condicional | Domicilio de entrega. Obligatorio con `PAQUETERIA` o `FLETERA`; no se acepta en los demas casos. |
+| `shippingAddress.recipient` | string | Si | Nombre del destinatario. Max 250 caracteres. |
+| `shippingAddress.phone` | string | No | Max 200 caracteres. |
+| `shippingAddress.postalCode` | string | Condicional | Max 10 caracteres. Obligatorio con `PAQUETERIA`. |
+| `shippingAddress.street` | string | No | Calle y numero. Max 500 caracteres. |
+| `shippingAddress.neighborhood` | string | No | Colonia. Max 250 caracteres. |
+| `shippingAddress.city` | string | No | Ciudad. Max 250 caracteres. |
+| `shippingAddress.state` | string | No | Estado. Max 250 caracteres. |
+| `shippingAddress.references` | string | No | Referencias. Max 1000 caracteres. |
+| `shippingAddress.businessName` | string | No | Razon social, para envios por fletera. Max 250 caracteres. |
+| `shippingAddress.taxId` | string | No | RFC, para envios por fletera. Max 20 caracteres. |
+| `payments` | array | No | Formas de pago que el cliente dice que va a usar. Si se envian, los montos deben sumar el `total`. |
+| `payments[].method` | string | Si | `EFECTIVO`, `TARJETA_CREDITO`, `TARJETA_DEBITO`, `TRANSFERENCIA` o `DEPOSITO`. |
+| `payments[].amount` | decimal | Si | Mayor a cero. |
+| `payments[].paymentDate` | date | No | Fecha en que el cliente va a pagar (`yyyy-MM-dd`). |
+| `paymentSchedule` | string | No | Horario o turno que indica el cliente. Max 100 caracteres. |
+| `branchNote` | string | No | Nota para la sucursal. Max 1000 caracteres. |
 
 Cuerpo de la peticion:
 
@@ -234,6 +255,8 @@ Cuerpo de la peticion:
   ]
 }
 ```
+
+Todos los campos despues de `items` son opcionales, asi que un cuerpo como el de arriba, sin datos de entrega ni de pago, sigue funcionando.
 
 Respuesta — `201 Created`. Regresa la pre-orden tal como se guardo, incluyendo el `id` generado, el `folio`, los totales calculados y `createdAt`.
 
@@ -255,6 +278,65 @@ Respuesta — `201 Created`. Regresa la pre-orden tal como se guardo, incluyendo
   ]
 }
 ```
+
+#### Entrega, domicilio y pago
+
+El metodo de entrega sigue las tres "Formas de Entrega" de una cotizacion en ERP-MX, asi el vendedor recibe la cotizacion ya llena cuando aprueba la pre-orden:
+
+| `deliveryMethod` | Que significa | Que mas se envia |
+| --- | --- | --- |
+| `RECOLECCION` | El cliente recoge el pedido en la sucursal. | `branchCode`. Sin domicilio. |
+| `PAQUETERIA` | Envio por un servicio de paqueteria. Nuestra "Entrega a Domicilio" (id `4`) es uno de esos servicios. | `deliveryServiceId` y `shippingAddress` con `postalCode`. El servicio debe estar activo y cubrir ese codigo postal. |
+| `FLETERA` | Envio por una fletera. | `fleteraCode` y `shippingAddress` (acepta `businessName` y `taxId`). |
+
+Usa [6.5 Opciones de entrega](#65-opciones-de-entrega) para obtener los `deliveryServiceId` validos para un codigo postal y la lista de `fleteraCode`.
+
+Los `payments` son lo que el cliente dice que va a pagar. Son solo informativos: no se registra ningun pago en BambooERP. Si se envian, la suma de `payments[].amount` debe coincidir con el `total` de los items, con una tolerancia de `0.01`.
+
+Si alguna de estas reglas no se cumple, la API regresa `400` con un mensaje:
+
+```json
+{ "message": "La paquetería 3 no está activa o no tiene cobertura en el C.P. 06000." }
+```
+
+Cuerpo de la peticion con datos de entrega y pago:
+
+```json
+{
+  "customerCode": "AAA2A101505",
+  "notes": "Pedido Catalogo #43",
+  "branchCode": "801010306",
+  "deliveryMethod": "PAQUETERIA",
+  "deliveryServiceId": 4,
+  "shippingAddress": {
+    "recipient": "Karina Martínez",
+    "phone": "5512345678",
+    "postalCode": "06000",
+    "street": "Izazaga 89",
+    "neighborhood": "Centro",
+    "city": "Cuauhtémoc",
+    "state": "CDMX",
+    "references": "Portón negro"
+  },
+  "payments": [
+    { "method": "EFECTIVO", "amount": 680.00, "paymentDate": "2026-10-20" },
+    { "method": "TRANSFERENCIA", "amount": 200.00, "paymentDate": "2026-10-20" }
+  ],
+  "paymentSchedule": "Turno matutino",
+  "branchNote": "Llamar antes de entregar",
+  "items": [
+    { "productCode": "BS-19", "quantity": 1, "unitPrice": 198.00 },
+    { "productCode": "SM-2110", "quantity": 1, "unitPrice": 250.00 },
+    { "productCode": "BS-05", "quantity": 1, "unitPrice": 432.00 }
+  ]
+}
+```
+
+La respuesta incluye los mismos datos, como se muestra en [6.3](#63-detalle-de-pre-orden-por-id).
+
+:::note Costo de envio
+El `total` no incluye el costo de envio. ERP-MX lo calcula cuando el vendedor guarda la cotizacion, asi que el total de la cotizacion puede quedar arriba de lo que el cliente dijo que pagaria.
+:::
 
 ### 6.2 Listar pre-ordenes
 
@@ -312,6 +394,21 @@ Campos de stock por item:
 | `almacenes[].stockDisponible` | integer | Piezas entregables en este almacen. |
 | `almacenes[].cantidadSurtir` | integer | Piezas sugeridas a surtir desde este almacen (reparto greedy). |
 
+Campos de entrega y pago (ver [Entrega, domicilio y pago](#entrega-domicilio-y-pago)). Vienen en `null` o vacios en las pre-ordenes que se crearon sin ellos:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `branchCode` | string | Codigo de la sucursal (`departments.code`). |
+| `branchName` | string | Nombre de la sucursal. |
+| `deliveryMethod` | string | `RECOLECCION`, `PAQUETERIA` o `FLETERA`. |
+| `deliveryServiceId` | integer | Id del servicio de paqueteria (solo `PAQUETERIA`). |
+| `deliveryServiceName` | string | Nombre del servicio, por ejemplo `Entrega a Domicilio`. |
+| `fleteraCode` | string | Codigo de la fletera (solo `FLETERA`). |
+| `shippingAddress` | object | Domicilio de entrega, con los mismos campos que se enviaron. |
+| `payments[]` | array | `method`, `paymentFormId` (`sat_FormaPago.ID`), `amount` y `paymentDate`. |
+| `paymentSchedule` | string | Horario o turno. |
+| `branchNote` | string | Nota para la sucursal. |
+
 ### Respuesta
 
 ```json
@@ -326,6 +423,29 @@ Campos de stock por item:
   "isApproved": false,
   "total": 1570.00,
   "createdAt": "2026-07-01T10:15:30.123",
+  "branchCode": "801010306",
+  "branchName": "Sucursal Izazaga",
+  "deliveryMethod": "PAQUETERIA",
+  "deliveryServiceId": 4,
+  "deliveryServiceName": "Entrega a Domicilio",
+  "fleteraCode": null,
+  "shippingAddress": {
+    "recipient": "Juan Pérez",
+    "phone": "5512345678",
+    "postalCode": "06000",
+    "street": "Izazaga 89",
+    "neighborhood": "Centro",
+    "city": "Cuauhtémoc",
+    "state": "CDMX",
+    "references": null,
+    "businessName": null,
+    "taxId": null
+  },
+  "payments": [
+    { "method": "EFECTIVO", "paymentFormId": 1, "amount": 1570.00, "paymentDate": "2026-07-02T00:00:00" }
+  ],
+  "paymentSchedule": null,
+  "branchNote": null,
   "items": [
     {
       "id": 45,
@@ -390,6 +510,11 @@ Campos por item (equivalentes en ingles de los campos en espanol de `6.3`):
 
 El `status` de la pre-orden tambien se regresa en ingles: `PENDING`, `TAKEN`, `CONVERTED`, `CANCELLED`.
 
+Los campos de entrega y pago de `6.3` se regresan con los mismos nombres, con estos valores traducidos:
+
+- `deliveryMethod`: `PICKUP` (`RECOLECCION`), `PARCEL` (`PAQUETERIA`) o `FREIGHT` (`FLETERA`).
+- `payments[].method`: `CASH`, `CREDIT_CARD`, `DEBIT_CARD`, `TRANSFER` o `CASH_DEPOSIT`.
+
 ### Respuesta
 
 ```json
@@ -425,6 +550,48 @@ El `status` de la pre-orden tambien se regresa en ingles: `PENDING`, `TAKEN`, `C
   }
 ]
 ```
+
+### 6.5 Opciones de entrega
+
+Regresa lo que el cliente puede elegir cuando la pre-orden se envia. Usa los mismos filtros que la pantalla de cotizacion de ERP-MX:
+
+- `paqueterias[]`: servicios de paqueteria activos que cubren el codigo postal. `id` es el valor que se manda en `deliveryServiceId`.
+- `fleteras[]`: fleteras. `code` es el valor que se manda en `fleteraCode`.
+
+```http
+GET https://bamboonetapi.ddns.net/api/PreOrdenes/opciones-entrega?postalCode={postalCode}
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `postalCode` | string | No | Codigo postal de entrega. Si se omite, `paqueterias` regresa vacio y solo se regresan las `fleteras`. |
+
+### Respuesta
+
+```json
+{
+  "postalCode": "06000",
+  "paqueterias": [
+    { "id": 4, "name": "Entrega a Domicilio" },
+    { "id": 3, "name": "PAQUETEEXPRESS" }
+  ],
+  "fleteras": [
+    { "code": "FLT-0001", "name": "FLETERA EJEMPLO" }
+  ]
+}
+```
+
+### 6.6 Que pasa cuando se aprueba la pre-orden
+
+Cuando el vendedor aprueba la pre-orden en ERP-MX ("Aprobar y crear cotizacion"), la cotizacion se crea con:
+
+- **Sucursal:** la de `branchCode`. Si no viene, la del vendedor.
+- **Forma de entrega:**
+  - `RECOLECCION` pasa a la forma 1, sin domicilio.
+  - `PAQUETERIA` pasa a la forma 2. El domicilio se guarda como domicilio del cliente con el servicio de paqueteria.
+  - `FLETERA` pasa a la forma 3. El domicilio se guarda como domicilio del cliente con la fletera.
+- **Comentario:** los pagos, el horario y la nota para la sucursal van al comentario de la cotizacion. No se crea ningun pago.
+- **Costo de envio:** lo calcula ERP-MX cuando se guarda la cotizacion.
 
 ## 7. Ventas (endpoint en ingles)
 

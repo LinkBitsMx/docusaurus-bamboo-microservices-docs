@@ -10,6 +10,7 @@ title: Errors and FAQs
 | Code | Meaning | Recommended response |
 | --- | --- | --- |
 | `200` | Successful query | Process the JSON response |
+| `400` | The data sent in a `POST` is not valid | Read `message`, fix the data and send it again |
 | `401` | Missing or invalid API Key | Check credentials |
 | `404` | Resource not found | Validate the folio, SKU, or ticket |
 | `500` | Internal error | Report with request details |
@@ -67,6 +68,14 @@ Each pre-order item is enriched with the deliverable stock (`deliverable_qty`) o
 - `DISTRIBUIR` / `DISTRIBUTE` — there is enough total stock, but it is spread across several warehouses.
 - `AGOTADO_PARCIAL` / `PARTIALLY_COVERED` — there is some stock, but not enough for the full quantity.
 - `SIN_STOCK` / `OUT_OF_STOCK` — no sales warehouse holds any stock.
+
+### Why is "Entrega a Domicilio" sent as `PAQUETERIA`?
+
+ERP-MX has three delivery forms: pickup (`RECOLECCION`), parcel services (`PAQUETERIA`) and freight carriers (`FLETERA`). Our own home delivery is one of the parcel services, so it is sent as `PAQUETERIA` with `deliveryServiceId: 4`. Use `GET /api/PreOrdenes/opciones-entrega?postalCode=...` to see which parcel services cover the customer's postal code.
+
+### Are the pre-order payments registered in BambooERP?
+
+No. `payments` records what the customer says they will pay. When the pre-order is approved, those payments are written into the quotation comment, and the payment is registered later with its receipt, as usual.
 
 ### Why is `/api/preorders/detail` in English while the other pre-order endpoints are in Spanish?
 
