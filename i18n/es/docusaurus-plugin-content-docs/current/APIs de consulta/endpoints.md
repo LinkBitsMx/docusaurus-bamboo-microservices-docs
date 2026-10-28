@@ -219,7 +219,7 @@ POST https://bamboonetapi.ddns.net/api/PreOrdenes
 | `items[].productCode` | string | Si | Codigo de producto o SKU. Max 50 caracteres. |
 | `items[].quantity` | integer | Si | Debe ser mayor a cero. |
 | `items[].unitPrice` | decimal | Si | No puede ser negativo. |
-| `branchCode` | string | Condicional | Sucursal del pedido: `departments.code` (por ejemplo `801010306`, Sucursal Izazaga). Debe existir. Obligatorio cuando `deliveryMethod` es `RECOLECCION`. |
+| `branchCode` | string | Condicional | Sucursal del pedido: `departments.code` (por ejemplo `801010306`, Sucursal Izazaga). Debe existir. Obligatorio cuando `deliveryMethod` es `RECOLECCION`, salvo que se mande `warehouseGroup` (recoleccion en bodega). |
 | `deliveryMethod` | string | No | `RECOLECCION`, `PAQUETERIA` o `FLETERA`. Ver [Entrega, domicilio y pago](#entrega-domicilio-y-pago). |
 | `deliveryServiceId` | integer | Condicional | Servicio de paqueteria. Obligatorio con `PAQUETERIA` y solo se acepta con ella. |
 | `fleteraCode` | string | Condicional | Codigo de la fletera. Obligatorio con `FLETERA` y solo se acepta con ella. Max 50 caracteres. |
@@ -234,12 +234,28 @@ POST https://bamboonetapi.ddns.net/api/PreOrdenes
 | `shippingAddress.references` | string | No | Referencias. Max 1000 caracteres. |
 | `shippingAddress.businessName` | string | No | Razon social, para envios por fletera. Max 250 caracteres. |
 | `shippingAddress.taxId` | string | No | RFC, para envios por fletera. Max 20 caracteres. |
-| `payments` | array | No | Formas de pago que el cliente dice que va a usar. Si se envian, los montos deben sumar el `total`. |
+| `payments` | array | No | Formas de pago que el cliente dice que va a usar. Si se envian, los montos deben sumar el `total` menos `couponDiscount`. |
 | `payments[].method` | string | Si | `EFECTIVO`, `TARJETA_CREDITO`, `TARJETA_DEBITO`, `TRANSFERENCIA` o `DEPOSITO`. |
 | `payments[].amount` | decimal | Si | Mayor a cero. |
 | `payments[].paymentDate` | date | No | Fecha en que el cliente va a pagar (`yyyy-MM-dd`). |
 | `paymentSchedule` | string | No | Horario o turno que indica el cliente. Max 100 caracteres. |
 | `branchNote` | string | No | Nota para la sucursal. Max 1000 caracteres. |
+| `orderNo` | string | No | Numero de pedido en el sistema de origen. Max 50 caracteres. Si se manda, el mismo pedido solo se acepta una vez. |
+| `orderDate` | date | No | Fecha del pedido en el sistema de origen (`yyyy-MM-dd`). Contra ella se revisa la vigencia de los cupones. |
+| `warehouseGroup` | string | No | Grupo de almacenes que eligio el cliente: `CDMX`, `GDL` o `CDMX+GDL`. Ver [Almacenes, cupones y numero de pedido](#almacenes-cupones-y-numero-de-pedido). |
+| `warehouses` | array | No | Almacenes fisicos del grupo. |
+| `warehouses[].code` | string | Si | Codigo de almacen de Kingdee (por ejemplo `80103`). Debe existir. |
+| `warehouses[].name` | string | No | Nombre del almacen. Solo informativo. |
+| `items[].warehouseCodes` | array de string | No | Codigos de los almacenes desde donde se puede surtir ese producto. Si se manda `warehouses`, deben estar en esa lista. Las lineas de servicio (`FLETE`, `LB00001`) no lo llevan. |
+| `couponDiscount` | decimal | Condicional | Descuento total por cupones. Obligatorio si se envian `coupons`; debe ser la suma de `coupons[].faceValue`. |
+| `coupons` | array | No | Cupones usados en el pedido. Maximo 2: uno general y uno de productos designados. |
+| `coupons[].code` | string | Si | Folio del cupon en el sistema de origen. Max 100 caracteres. Cada folio se acepta una sola vez. |
+| `coupons[].faceValue` | decimal | Si | Valor del cupon. Mayor a cero. |
+| `coupons[].minTotal` | decimal | No | Compra minima para usar el cupon. |
+| `coupons[].validFrom` | date | No | Inicio de vigencia (`yyyy-MM-dd`). |
+| `coupons[].validUntil` | date | No | Fin de vigencia (`yyyy-MM-dd`). |
+| `coupons[].scopeCount` | integer | No | Productos designados. `0` o vacio = cupon general. |
+| `coupons[].scopeTotal` | decimal | No | Subtotal sobre el que aplica el cupon. Si no viene, se usa el `total`. |
 
 Cuerpo de la peticion:
 
@@ -285,13 +301,13 @@ El metodo de entrega sigue las tres "Formas de Entrega" de una cotizacion en ERP
 
 | `deliveryMethod` | Que significa | Que mas se envia |
 | --- | --- | --- |
-| `RECOLECCION` | El cliente recoge el pedido en la sucursal. | `branchCode`. Sin domicilio. |
+| `RECOLECCION` | El cliente recoge el pedido en la sucursal, o en la bodega si se manda `warehouseGroup`. | `branchCode` o `warehouseGroup`. Sin domicilio. |
 | `PAQUETERIA` | Envio por un servicio de paqueteria. Nuestra "Entrega a Domicilio" (id `4`) es uno de esos servicios. | `deliveryServiceId` y `shippingAddress` con `postalCode`. El servicio debe estar activo y cubrir ese codigo postal. |
 | `FLETERA` | Envio por una fletera. | `fleteraCode` y `shippingAddress` (acepta `businessName` y `taxId`). |
 
 Usa [6.5 Opciones de entrega](#65-opciones-de-entrega) para obtener los `deliveryServiceId` validos para un codigo postal y la lista de `fleteraCode`.
 
-Los `payments` son lo que el cliente dice que va a pagar. Son solo informativos: no se registra ningun pago en BambooERP. Si se envian, la suma de `payments[].amount` debe coincidir con el `total` de los items, con una tolerancia de `0.01`.
+Los `payments` son lo que el cliente dice que va a pagar. Son solo informativos: no se registra ningun pago en BambooERP. Si se envian, la suma de `payments[].amount` debe coincidir con el `total` de los items menos `couponDiscount`, con una tolerancia de `0.01`.
 
 Si alguna de estas reglas no se cumple, la API regresa `400` con un mensaje:
 
@@ -337,6 +353,74 @@ La respuesta incluye los mismos datos, como se muestra en [6.3](#63-detalle-de-p
 :::note Costo de envio
 El `total` no incluye el costo de envio. ERP-MX lo calcula cuando el vendedor guarda la cotizacion, asi que el total de la cotizacion puede quedar arriba de lo que el cliente dijo que pagaria.
 :::
+
+#### Almacenes, cupones y numero de pedido
+
+Estos campos los usa la Tienda Online (REGIONES). Todos son opcionales.
+
+**Almacenes.** El cliente no elige un almacen, elige un grupo (`warehouseGroup`). `warehouses[]` lista los almacenes fisicos del grupo y `items[].warehouseCodes` dice desde cuales se puede surtir cada producto. Los codigos son los de Kingdee y tienen que existir en BambooERP. Al convertir la pre-orden, el vendedor solo puede elegir almacenes de esa lista para cada producto.
+
+| Grupo | Almacenes |
+| --- | --- |
+| `CDMX` | `80103` Cedis Pantaco 105, `80104` Cedis Ceylan, `80105` Cedis Vallejo, `80106` Cedis Pantaco 31, `80107` Cedis Montevideo, `101301` Peru |
+| `GDL` | `80108` Almacen Gonzalez Gallo, `80110` Almacen Molina, `80111` Almacen San Martin |
+| `CDMX+GDL` | Los 9 |
+
+**Cupones.** El cupon ya viene descontado: `payments` suma `total - couponDiscount`. La API revisa que:
+
+- `couponDiscount` sea la suma de `coupons[].faceValue`.
+- No haya mas de un cupon general (`scopeCount` 0) ni mas de uno de productos designados.
+- La fecha del pedido (`orderDate`, o el dia en que llega si no se manda) este dentro de `validFrom` y `validUntil`.
+- `scopeTotal` (o el `total`) alcance `minTotal` y no sea menor que `faceValue`.
+- El folio del cupon no se haya usado en otra pre-orden.
+
+El sistema de origen solo manda el cupon; BambooERP lo crea y lo liquida en Kingdee (ver [6.6](#66-que-pasa-cuando-se-aprueba-la-pre-orden)).
+
+**Numero de pedido.** Si se manda `orderNo`, un segundo envio del mismo pedido regresa `400`. Asi un reintento no duplica la pre-orden.
+
+Cuerpo de la peticion (pedido real de la Tienda Online, recortado):
+
+```json
+{
+  "customerCode": "GUA1D100845",
+  "orderNo": "20261027001",
+  "orderDate": "2026-10-27",
+  "notes": "Pedido Catalogo #85 / Bodega: CDMX / Cupon: vchr2026102700000001 / Descuento: $100.00",
+  "warehouseGroup": "CDMX",
+  "warehouses": [
+    { "code": "80103", "name": "Cedis Pantaco 105" },
+    { "code": "101301", "name": "Peru" }
+  ],
+  "items": [
+    { "productCode": "002470", "quantity": 4, "unitPrice": 155, "warehouseCodes": ["80103", "101301"] },
+    { "productCode": "003752", "quantity": 5, "unitPrice": 965, "warehouseCodes": ["80103", "101301"] },
+    { "productCode": "FLETE", "quantity": 1, "unitPrice": 900 }
+  ],
+  "couponDiscount": 100,
+  "coupons": [
+    { "code": "vchr2026102700000001", "faceValue": 100, "minTotal": 1000, "validFrom": "2026-10-26", "validUntil": "2026-10-28", "scopeCount": 0, "scopeTotal": 5445 }
+  ],
+  "payments": [
+    { "method": "EFECTIVO", "amount": 3000, "paymentDate": "2026-10-27" },
+    { "method": "TARJETA_CREDITO", "amount": 3245, "paymentDate": "2026-10-27" }
+  ],
+  "deliveryMethod": "RECOLECCION",
+  "branchNote": "Recoger en bodega (sin flete)"
+}
+```
+
+Los items suman `6345`; con el cupon de `100` se pagan `6245`.
+
+Errores posibles:
+
+```json
+{ "message": "La suma de payments (6345.00) no cuadra con el total de la pre-orden menos el cupón (6245.00)." }
+{ "message": "couponDiscount (50.00) no cuadra con la suma de coupons.faceValue (100.00)." }
+{ "message": "El cupón 'vchr2026102700000001' ya se usó en otra pre-orden." }
+{ "message": "El cupón 'vchr2026102700000001' ya había vencido el 2026-10-29 (vigente hasta 2026-10-28)." }
+{ "message": "El pedido '20261027001' ya se recibió en la pre-orden GUA1D100845-00012." }
+{ "message": "Almacenes que no existen en el catálogo: 99999." }
+```
 
 ### 6.2 Listar pre-ordenes
 
@@ -408,6 +492,13 @@ Campos de entrega y pago (ver [Entrega, domicilio y pago](#entrega-domicilio-y-p
 | `payments[]` | array | `method`, `paymentFormId` (`sat_FormaPago.ID`), `amount` y `paymentDate`. |
 | `paymentSchedule` | string | Horario o turno. |
 | `branchNote` | string | Nota para la sucursal. |
+| `orderNo` | string | Numero de pedido en el sistema de origen. |
+| `orderDate` | date | Fecha del pedido en el sistema de origen. |
+| `warehouseGroup` | string | `CDMX`, `GDL` o `CDMX+GDL`. |
+| `warehouseCodes[]` | array de string | Codigos de los almacenes del grupo. |
+| `items[].warehouseCodes[]` | array de string | Almacenes desde donde se puede surtir el producto. Vacio = cualquiera. |
+| `couponDiscount` | decimal | Descuento total por cupones. |
+| `coupons[]` | array | Los campos que se enviaron, mas `kingdeeCode` (folio del cupon en Kingdee, `null` mientras no se crea) y `applied` (`true` cuando ya se aplico como pago en la cotizacion). |
 
 ### Respuesta
 
@@ -510,7 +601,7 @@ Campos por item (equivalentes en ingles de los campos en espanol de `6.3`):
 
 El `status` de la pre-orden tambien se regresa en ingles: `PENDING`, `TAKEN`, `CONVERTED`, `CANCELLED`.
 
-Los campos de entrega y pago de `6.3` se regresan con los mismos nombres, con estos valores traducidos:
+Los campos de entrega, pago, almacenes y cupones de `6.3` (incluidos `orderNo`, `warehouseGroup`, `warehouseCodes`, `couponDiscount`, `coupons[]` e `items[].warehouseCodes`) se regresan con los mismos nombres, con estos valores traducidos:
 
 - `deliveryMethod`: `PICKUP` (`RECOLECCION`), `PARCEL` (`PAQUETERIA`) o `FREIGHT` (`FLETERA`).
 - `payments[].method`: `CASH`, `CREDIT_CARD`, `DEBIT_CARD`, `TRANSFER` o `CASH_DEPOSIT`.
@@ -590,8 +681,17 @@ Cuando el vendedor aprueba la pre-orden en ERP-MX ("Aprobar y crear cotizacion")
   - `RECOLECCION` pasa a la forma 1, sin domicilio.
   - `PAQUETERIA` pasa a la forma 2. El domicilio se guarda como domicilio del cliente con el servicio de paqueteria.
   - `FLETERA` pasa a la forma 3. El domicilio se guarda como domicilio del cliente con la fletera.
-- **Comentario:** los pagos, el horario y la nota para la sucursal van al comentario de la cotizacion. No se crea ningun pago.
+- **Almacenes:** si el producto trae `warehouseCodes`, el vendedor solo puede surtirlo de esos almacenes.
+- **Comentario:** los pagos, los cupones, el horario y la nota para la sucursal van al comentario de la cotizacion. No se crea ningun pago por `payments`.
 - **Costo de envio:** lo calcula ERP-MX cuando se guarda la cotizacion.
+
+Si la pre-orden trae **cupones**:
+
+1. Se crea **una sola cotizacion**, aunque los almacenes sean de distintas ciudades.
+2. Cuando se vinculan los pagos de la cotizacion y pasa a estatus "pago sin procesar" (29), ERP-MX crea el cupon en Kingdee (`CreateGiftTicket`, tipo `LQLX003`, vigencia de 60 dias desde ese dia), lo publica al cliente (`CreateTicketsPublish`) y lo registra como un pago de la cotizacion por su `faceValue`.
+3. Al generar la venta, el cupon se consume en Kingdee (`CreateTicketsReturn`), igual que los cupones de garantia.
+
+Desde ese momento `GET /api/PreOrdenes/{id}` regresa el folio de Kingdee en `coupons[].kingdeeCode` y `applied: true`.
 
 ## 7. Ventas (endpoint en ingles)
 
