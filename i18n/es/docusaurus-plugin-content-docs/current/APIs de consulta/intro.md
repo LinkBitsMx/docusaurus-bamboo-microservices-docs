@@ -25,6 +25,9 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Ventas a credito | Las ventas que se fueron a credito, cada una con los abonos aplicados, mas las metricas de cobranza del conjunto filtrado |
 | Estado de cuenta del cliente | Saldos de la cuenta del cliente y sus movimientos (cargos, abonos y saldo corrido), con el detalle de cada pago y los recibos enviados a Kingdee |
 | Clientes | Datos basicos del cliente (contacto, empresa, categoria, sucursal y datos fiscales) junto con sus direcciones registradas |
+| Envios | Paqueterias, peso y volumen de productos y el calculo del envio con las mismas reglas con las que cobra BambooERP |
+| Vendedores | Vendedores y los clientes que tienen asignados |
+| Compra Anticipada | Crear pre-ordenes que vende una sucursal y surte un CEDIS (el cliente recoge en el CEDIS), y seguir su surtido, validacion y estatus en Kingdee |
 
 ## Base URL
 
@@ -34,7 +37,7 @@ https://bamboonetapi.ddns.net/api/
 
 ## Formato general
 
-- La mayoria de las peticiones usan `GET`; crear una pre-orden y registrar un pago usan `POST`.
+- La mayoria de las peticiones usan `GET`; crear una pre-orden, registrar un pago y cotizar un envio usan `POST`.
 - Todas las respuestas se entregan en JSON.
 - Todas las peticiones requieren el header `X-API-Key`.
 - Si un dato aun no existe en BambooERP, la API puede regresar valores como `Sin guia`, `No asignada` o `null`.
@@ -67,4 +70,13 @@ GET  /payments
 GET  /payments/{id}
 GET  /customers
 GET  /customers/{customerCode}
+GET  /shipping/carriers
+GET  /shipping/products
+POST /shipping/quote
+GET  /sellers
+GET  /sellers/customers
+GET  /compra-anticipada/cedis
+POST /compra-anticipada/preordenes
+GET  /compra-anticipada/preordenes
+GET  /compra-anticipada/preordenes/{orderId}
 ```

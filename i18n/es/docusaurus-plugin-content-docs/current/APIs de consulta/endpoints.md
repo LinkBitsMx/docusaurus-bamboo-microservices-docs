@@ -372,7 +372,7 @@ Estos campos los usa la Tienda Online (REGIONES). Todos son opcionales.
 - No haya mas de un cupon general (`scopeCount` 0) ni mas de uno de productos designados.
 - La fecha del pedido (`orderDate`, o el dia en que llega si no se manda) este dentro de `validFrom` y `validUntil`.
 - `scopeTotal` (o el `total`) alcance `minTotal` y no sea menor que `faceValue`.
-- El folio del cupon no se haya usado en otra pre-orden.
+- El folio del cupon no este en otra pre-orden que siga activa. Un cupon de una pre-orden o cotizacion cancelada se puede volver a mandar.
 
 El sistema de origen solo manda el cupon; BambooERP lo crea y lo liquida en Kingdee (ver [6.6](#66-que-pasa-cuando-se-aprueba-la-pre-orden)).
 
@@ -416,7 +416,7 @@ Errores posibles:
 ```json
 { "message": "La suma de payments (6345.00) no cuadra con el total de la pre-orden menos el cupón (6245.00)." }
 { "message": "couponDiscount (50.00) no cuadra con la suma de coupons.faceValue (100.00)." }
-{ "message": "El cupón 'vchr2026102700000001' ya se usó en otra pre-orden." }
+{ "message": "El cupón 'vchr2026102700000001' ya está en otra pre-orden que no se ha cancelado." }
 { "message": "El cupón 'vchr2026102700000001' ya había vencido el 2026-10-29 (vigente hasta 2026-10-28)." }
 { "message": "El pedido '20261027001' ya se recibió en la pre-orden GUA1D100845-00012." }
 { "message": "Almacenes que no existen en el catálogo: 99999." }
@@ -498,7 +498,7 @@ Campos de entrega y pago (ver [Entrega, domicilio y pago](#entrega-domicilio-y-p
 | `warehouseCodes[]` | array de string | Codigos de los almacenes del grupo. |
 | `items[].warehouseCodes[]` | array de string | Almacenes desde donde se puede surtir el producto. Vacio = cualquiera. |
 | `couponDiscount` | decimal | Descuento total por cupones. |
-| `coupons[]` | array | Los campos que se enviaron, mas `kingdeeCode` (folio del cupon en Kingdee, `null` mientras no se crea) y `applied` (`true` cuando ya se aplico como pago en la cotizacion). |
+| `coupons[]` | array | Los campos que se enviaron, mas `kingdeeCode` (folio del cupon en Kingdee, `null` mientras no se crea), `applied` (`true` cuando ya se aplico como pago en la cotizacion) y `cancelled` (`true` si se cancelo la pre-orden o la cotizacion; el folio se puede volver a usar). |
 
 ### Respuesta
 
@@ -692,6 +692,8 @@ Si la pre-orden trae **cupones**:
 3. Al generar la venta, el cupon se consume en Kingdee (`CreateTicketsReturn`), igual que los cupones de garantia.
 
 Desde ese momento `GET /api/PreOrdenes/{id}` regresa el folio de Kingdee en `coupons[].kingdeeCode` y `applied: true`.
+
+Si se cancela la pre-orden, o la cotizacion completa antes de generar la venta, el cupon tambien se cancela: si ya existia en Kingdee se devuelve (`CreateTicketsReturn`) y su pago en la cotizacion se rechaza. Desde ahi `GET` regresa `cancelled: true`, y BambooERP se lo informa al sistema de origen como `UNUSED` para que el cliente lo pueda volver a usar.
 
 ## 7. Ventas (endpoint en ingles)
 
@@ -2270,3 +2272,281 @@ Regresa un solo cliente con la misma forma que un elemento de `customers[]` en `
 :::note Un cliente inexistente es un 404
 Un `customerCode` que no existe en `customers` regresa `404` con `{ "message": "El cliente {customerCode} no existe." }`.
 :::
+
+## 12. Envios (endpoint en ingles)
+
+Paqueterias, peso y volumen de productos y el **calculo del envio con las mismas reglas con las que cobra BambooERP**. Solo lectura: no guarda nada.
+
+### 12.1 Listar paqueterias
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/shipping/carriers?postalCode={postalCode}&onlyActive=true
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `postalCode` | string | No | Con el, cada paqueteria indica si entrega ahi (`covered`). |
+| `onlyActive` | boolean | No | `false` tambien lista las inactivas. Default `true`. |
+
+Regresa las paqueterias con la capacidad de su caja y el precio por caja, las fleteras y los montos fijos de las reglas.
+
+### 12.2 Peso y volumen de productos
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/shipping/products?codes=04645,003553&departmentCode=801010307
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `codes` | string | Si | Codigos separados por coma, hasta 500. Con sus ceros a la izquierda. |
+| `departmentCode` | string | No | Departamento de la venta (`departments.code`). Elige los datos de esa sucursal. |
+
+El peso y el volumen de `starnet_products` son **por caja**, y `alias_name` trae las piezas por caja. Por pieza = valor de la caja / piezas por caja.
+
+### 12.3 Cotizar un envio
+
+```http
+POST http://pfconexionlinkbits.ddns.net:50780/api/shipping/quote
+```
+
+```json
+{
+  "carrierId": 3,
+  "postalCode": "77500",
+  "departmentCode": "801010307",
+  "productsTotal": 6240,
+  "items": [{ "code": "04645", "quantity": 24, "warehouseId": 1540415 }]
+}
+```
+
+| Campo | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `carrierId` | int | Uno de tres | `id` de la paqueteria (ver `12.1`). |
+| `freightCarrierCode` | string | Uno de tres | `code` de la fletera (ver `12.1`). |
+| `pickup` | boolean | Uno de tres | `true` cuando el cliente recoge. Costo 0. |
+| `postalCode` | string | Con paqueteria | C.P. de destino (5 digitos). |
+| `departmentCode` | string | No | Departamento de la venta. |
+| `productsTotal` | decimal | Condicional | Importe de los productos. Obligatorio para fletera, entrega local y seguro. |
+| `includeInsurance` | boolean | No | Agregar seguro (1% de los productos). Default `true`. |
+| `items[].code` | string | Si | Codigo del producto. |
+| `items[].quantity` | decimal | Si | Piezas. |
+| `items[].warehouseId` | int | No | Almacen del que sale. Las cajas se cuentan por almacen. |
+
+**Reglas**
+
+| Forma | Costo |
+| --- | --- |
+| Paqueteria | Por almacen: peso y volumen de sus productos entre la capacidad de la caja. Cajas = la mayor de las dos proporciones, +1 si sobra 30% o mas, minimo 1. Costo = cajas × precio por caja. |
+| Entrega local (`LB00365`) | Gratis desde 15,000 en productos; si no, 500 repartidos entre los almacenes. Sin seguro. |
+| Fletera | 500 si los productos suman menos de 15,000; si no, gratis. |
+| Recoleccion | 0 |
+| Seguro | 1% de los productos, solo paqueteria. SENDEX, PAQUETEEXPRESS y ENVIA siempre lo llevan. |
+
+### Respuesta
+
+```json
+{
+  "mode": "CARRIER",
+  "carrier": { "id": 3, "name": "PAQUETEEXPRESS", "productCode": "LB00380", "boxMaxWeightKg": 42.0, "boxMaxVolumeM3": 0.22, "pricePerBox": 430.0, "active": true, "mandatoryInsurance": true, "covered": true },
+  "postalCode": "77500",
+  "covered": true,
+  "productsTotal": 6240,
+  "shippingCost": 2580.0,
+  "insurance": 62.4,
+  "total": 2642.4,
+  "warehouses": [{ "warehouseId": 1540415, "weightKg": 112.32, "volumeM3": 1.335204, "boxes": 6, "pricePerBox": 430.0, "cost": 2580.0 }],
+  "productsWithoutWeight": [],
+  "productsNotFound": [],
+  "notes": ["Boxes per warehouse: ...", "PAQUETEEXPRESS always carries insurance."]
+}
+```
+
+:::note FedEx
+Cuando el cotizador en vivo de FedEx esta encendido en el ERP, el ERP cobra la tarifa de FedEx. Esta API siempre usa la regla de cajas.
+:::
+
+Los errores de la peticion regresan `400` con `{ "message": "..." }`.
+
+## 13. Vendedores (endpoint en ingles)
+
+Vendedores y los clientes que tienen asignados (`customers.assigned_user_id` → `catUsers`). La asignacion se mantiene en el ERP; esta API solo la lee.
+
+### 13.1 Listar vendedores
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/sellers?search={search}&onlyActive=true&page=1&pageSize=100
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `search` | string | No | Nombre o codigo de vendedor. |
+| `onlyActive` | boolean | No | Solo usuarios activos. |
+| `page` / `pageSize` | int | No | Paginado. `pageSize` hasta 500. |
+
+Solo aparecen los usuarios con al menos un cliente asignado. Cada uno regresa `sellerId`, `name`, `sellerCode` (`catUsers.code_seller`), `email`, `active`, `roleId`, `customersCount` y `activeCustomersCount`.
+
+### 13.2 Clientes por vendedor
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/sellers/customers?sellerId=413&onlyActiveCustomers=true&page=1&pageSize=200
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `sellerId` | int | No | Vendedor (`catUsers.idUsuario`). |
+| `sellerCode` | string | No | Codigo de vendedor. |
+| `search` | string | No | Codigo, nombre o empresa del cliente. |
+| `onlyActiveCustomers` | boolean | No | Solo clientes activos. |
+| `page` / `pageSize` | int | No | Paginado. `pageSize` hasta 1000. |
+
+Sin filtros regresa toda la asignacion, para sincronizarla pagina por pagina. Cada renglon trae el vendedor y el cliente (`customerCode`, `customerName`, `companyName`, `customerStatus`, `branch`, `phone`, `email`, `city`, `state`).
+
+## 14. Compra Anticipada: pre-ordenes surtidas en CEDIS
+
+Son las pre-ordenes del modulo **Compra Anticipada** del ERP-MX (`PreorderPurchases`). **No son las pre-ordenes de la seccion 6**, que son solicitudes de cotizacion. El ERP-MX las crea, asigna, surte, valida y envia a Kingdee (`CMK_LS_OrderBill`).
+
+Esta API da de alta las que **vende una sucursal pero surte un CEDIS**, porque el cliente recoge la mercancia en el CEDIS. A partir de ahi el ERP las trata como cualquier otra pre-orden, salvo que:
+
+- Aparecen en los tableros de asignacion, surtido y validacion **del CEDIS**, con el badge *Surte: Cedis X*.
+- El surtido muestra el stock y las ubicaciones del almacen del CEDIS.
+- En Kingdee, la organizacion de venta (`FSalOrgId`), la tienda (`FBranchId`) y el POS (`FPOS`) son de la sucursal que vende. La organizacion de inventario (`FStockOrgId`, org `801`) y el almacen (`FStockId`) son del CEDIS.
+
+```text
+GET  /compra-anticipada/cedis
+POST /compra-anticipada/preordenes
+GET  /compra-anticipada/preordenes
+GET  /compra-anticipada/preordenes/{orderId}
+```
+
+### 14.1 Listar CEDIS
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/cedis
+```
+
+Los valores validos de `cedisCode`: almacenes con categoria `CEDIS` que no estan bloqueados.
+
+```json
+[
+  { "warehouseId": 1540418, "code": "80105", "name": "Cedis Vallejo", "salesEnabled": true },
+  { "warehouseId": 4100081, "code": "80117", "name": "Almacen Peru", "salesEnabled": true }
+]
+```
+
+### 14.2 Crear una pre-orden surtida en CEDIS
+
+```http
+POST http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes
+```
+
+```json
+{
+  "branchCode": "801010308",
+  "cedisCode": "80105",
+  "sellerId": 426,
+  "terminalCode": "100803",
+  "customerCode": "C000123",
+  "notes": "Recoge el jueves",
+  "status": "Creada",
+  "items": [
+    { "materialNumber": "000095", "qty": 3 }
+  ]
+}
+```
+
+| Campo | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `branchCode` | string | Si | Sucursal que vende (`departments.code`). Define el folio (`{prefijo}-{año}-{######}`) y el catalogo de precios. |
+| `cedisCode` | string | Si | CEDIS que surte (`code` de `14.1`). |
+| `sellerId` | int | Si | Vendedor al que se atribuye la venta (`catUsers.idUsuario`, activo). |
+| `createdBy` | int | No | Usuario que captura. Si no se manda, es `sellerId`. |
+| `terminalCode` | string | Si | Terminal POS activa de la sucursal (`PosTerminals.PosCode`). Kingdee la usa como `FPOS` para que el POS pueda jalar la orden. |
+| `customerCode` | string | No | Cliente (`customers.customer_code`). Define la lista de precios. |
+| `notes` | string | No | Maximo 400 caracteres. |
+| `status` | string | No | `Creada` (default) la manda al tablero de asignacion del CEDIS. `Borrador` la guarda sin mandarla. |
+| `items[].materialNumber` | string | Si | Codigo del producto. Debe existir en el catalogo de la sucursal. No repetir productos. |
+| `items[].qty` | decimal | Si | Piezas. Mayor a 0. |
+
+El **precio no se manda**. La API lo calcula con la regla del ERP (`fn_PreorderPrecioCliente`): lista de precios del cliente, promocion vigente y precio de caja segun la cantidad.
+
+La orden se crea y se marca como surtida por el CEDIS en una sola transaccion. La respuesta es `201` con el mismo cuerpo que `14.4`.
+
+Errores posibles, con `400` y `{ "message": "..." }`:
+
+```json
+{ "message": "branchCode '801019999' no existe o no está ligada a una sucursal." }
+{ "message": "cedisCode '100201' no es un almacén CEDIS. Consulta GET /api/compra-anticipada/cedis." }
+{ "message": "terminalCode '3000' no es una terminal activa de Sucursal Ramon Corona." }
+{ "message": "Materiales que no existen en el catálogo de Sucursal Ramon Corona: ABC-1." }
+{ "message": "Materiales sin precio para este cliente: 000092." }
+```
+
+### 14.3 Listar pre-ordenes
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes?fulfillmentType=CEDIS&warehouseCode=80105&status=Creada&page=1&pageSize=50
+```
+
+| Parametro | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `status` | string | No | `Borrador`, `Creada`, `Asignada`, `Modificada`, `Surtida`, `Agotado`, `Validada` o `Cancelada`. |
+| `fulfillmentType` | string | No | `TIENDA` (se surte en la sucursal) o `CEDIS`. |
+| `warehouseCode` | string | No | Almacen que surte. |
+| `branchCode` | string | No | Sucursal que vende (`departments.code`). |
+| `page` / `pageSize` | int | No | Paginado. `pageSize` hasta 500, default 50. |
+
+Lista todas las pre-ordenes de Compra Anticipada, incluidas las capturadas en ERP-MX. Cada renglon regresa `orderId`, `folio`, `status`, `fulfillmentType`, la sucursal, el almacen, `customerName`, `sellerName`, `totalAmount`, `items` (numero de renglones), `k3Status`, `k3OrderNumber` y `createdAt`, dentro del envoltorio de paginacion (`page`, `pageSize`, `totalRecords`, `totalPages`, `preordenes`).
+
+### 14.4 Detalle de una pre-orden
+
+```http
+GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{orderId}
+```
+
+```json
+{
+  "orderId": 69,
+  "folio": "1I-2026-000021",
+  "status": "Creada",
+  "fulfillmentType": "CEDIS",
+  "branchId": "1148518",
+  "branchName": "Sucursal Ramon Corona",
+  "warehouseId": 1540418,
+  "warehouseCode": "80105",
+  "warehouseName": "Cedis Vallejo",
+  "terminalCode": "100803",
+  "customerId": null,
+  "customerCode": null,
+  "customerName": null,
+  "notes": null,
+  "totalAmount": 82.5,
+  "sellerId": 426,
+  "sellerName": "Angell",
+  "createdBy": 426,
+  "createdByName": "Angell",
+  "assignedToName": null,
+  "k3Status": null,
+  "k3OrderNumber": null,
+  "createdAt": "2026-11-10T20:51:36",
+  "updatedAt": "2026-11-10T20:51:36",
+  "items": [
+    {
+      "entryId": 1, "lineSeq": 1, "materialNumber": "000095", "materialName": "BOCINA VA371T",
+      "qty": 3, "price": 27.5, "amount": 82.5, "qtyPicked": 0, "isItemComplete": false,
+      "valStatus": null, "valQty": null
+    }
+  ]
+}
+```
+
+| Campo | Descripcion |
+| --- | --- |
+| `status` | Estatus del flujo del ERP: `Creada` → `Asignada` → `Surtida` (o `Agotado` si falto stock) → `Validada`. `Cancelada` en cualquier punto antes de validar. |
+| `warehouse*` | Almacen que surte: el CEDIS cuando `fulfillmentType = CEDIS`. |
+| `k3Status` | Resultado del envio a Kingdee al validar: `created`, `audited` o `error`. |
+| `k3OrderNumber` | Folio en Kingdee (`YBAMBOO...`). |
+| `createdAt` / `updatedAt` | En UTC, como los guarda el ERP. |
+| `items[].qtyPicked` | Cantidad surtida por el almacen. |
+| `items[].valStatus` | Validacion del renglon: `ok`, `diff` (con la cantidad real en `valQty`) o `null`. |
+
+Un `orderId` que no existe regresa `404`.

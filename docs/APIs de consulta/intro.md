@@ -25,6 +25,9 @@ These APIs let external systems query BambooERP information without accessing th
 | Credit sales | The sales that went on credit, each one with the payments applied against it, plus the collection metrics of the whole filtered set |
 | Customer account statement | Balances of the customer account and its movements (charges, payments and running balance), with the detail of each payment and the receipts sent to Kingdee |
 | Customers | Basic data of a customer (contact, company, category, branch and tax data) together with its registered addresses |
+| Shipping | Carriers, product weight and volume, and the shipping quote with the same rules BambooERP charges with |
+| Sellers | Sellers and the customers assigned to them |
+| Advance purchase | Create pre-orders that a branch sells and a CEDIS fulfills (the customer picks up at the CEDIS), and follow their picking, validation and Kingdee status |
 
 ## Base URL
 
@@ -34,7 +37,7 @@ http://pfconexionlinkbits.ddns.net:50780/api/
 
 ## General format
 
-- Most requests use `GET`; creating a pre-order and registering a payment use `POST`.
+- Most requests use `GET`; creating a pre-order, registering a payment and quoting a shipment use `POST`.
 - All responses are returned as JSON.
 - All requests require the `X-API-Key` header.
 - If a value is not available yet in BambooERP, the API may return values such as `Sin guia`, `No asignada`, or `null`.
@@ -69,4 +72,13 @@ GET  /credit-sales
 GET  /estado-cuenta/{customerCode}
 GET  /customers
 GET  /customers/{customerCode}
+GET  /shipping/carriers
+GET  /shipping/products
+POST /shipping/quote
+GET  /sellers
+GET  /sellers/customers
+GET  /compra-anticipada/cedis
+POST /compra-anticipada/preordenes
+GET  /compra-anticipada/preordenes
+GET  /compra-anticipada/preordenes/{orderId}
 ```
