@@ -27,7 +27,7 @@ These APIs let external systems query BambooERP information without accessing th
 | Customers | Basic data of a customer (contact, company, category, branch and tax data) together with its registered addresses |
 | Shipping | Carriers, product weight and volume, and the shipping quote with the same rules BambooERP charges with |
 | Sellers | Sellers and the customers assigned to them |
-| Advance purchase | Create pre-orders that a branch sells and a CEDIS fulfills (the customer picks up at the CEDIS), and follow their picking, validation and Kingdee status |
+| Advance purchase | Create pre-orders that a branch sells and a CEDIS fulfills (the customer picks up at the CEDIS), with a warehouse per line and the Online Store order number; follow their picking, validation and Kingdee status, and get status callbacks in the Online Store |
 
 ## Base URL
 

@@ -2409,6 +2409,8 @@ Esta API da de alta las que **vende una sucursal pero surte un CEDIS**, porque e
 
 - Aparecen en los tableros de asignacion, surtido y validacion **del CEDIS**, con el badge *Surte: Cedis X*.
 - El surtido muestra el stock y las ubicaciones del almacen del CEDIS.
+- Cada renglon puede salir de su propio almacen (`items[].warehouseCode`), incluso el mismo producto desde varios almacenes. El surtidor ve de que almacen sale cada renglon.
+- Si la pre-orden trae `orderNo`, la Tienda Online recibe un aviso en cada cambio de estatus (`14.5`).
 - En Kingdee, la organizacion de venta (`FSalOrgId`), la tienda (`FBranchId`) y el POS (`FPOS`) son de la sucursal que vende. La organizacion de inventario (`FStockOrgId`, org `801`) y el almacen (`FStockId`) son del CEDIS.
 
 ```text
@@ -2446,11 +2448,27 @@ POST http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes
   "sellerId": 426,
   "terminalCode": "100803",
   "customerCode": "C000123",
+  "orderNo": "TO-2026-000123",
   "notes": "Recoge el jueves",
   "status": "Creada",
   "items": [
-    { "materialNumber": "000095", "qty": 3 }
-  ]
+    { "materialNumber": "000095", "qty": 3 },
+    { "materialNumber": "000099", "qty": 1, "warehouseCode": "80107" },
+    { "materialNumber": "000095", "qty": 5, "warehouseCode": "80103" }
+  ],
+  "couponDiscount": 50,
+  "coupons": [
+    { "code": "vchr2026111000000001", "faceValue": 50, "minTotal": 100, "validFrom": "2026-11-01", "validUntil": "2026-11-30", "scopeCount": 0 }
+  ],
+  "shippingAddress": {
+    "recipient": "Juan Perez",
+    "phone": "5512345678",
+    "postalCode": "06000",
+    "street": "Peru 10",
+    "neighborhood": "Centro",
+    "city": "CDMX",
+    "state": "CDMX"
+  }
 }
 ```
 
@@ -2462,14 +2480,28 @@ POST http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes
 | `createdBy` | int | No | Usuario que captura. Si no se manda, es `sellerId`. |
 | `terminalCode` | string | Si | Terminal POS activa de la sucursal (`PosTerminals.PosCode`). Kingdee la usa como `FPOS` para que el POS pueda jalar la orden. |
 | `customerCode` | string | No | Cliente (`customers.customer_code`). Define la lista de precios. |
+| `orderNo` | string | No | Numero de pedido en la Tienda Online (maximo 50). Un mismo `orderNo` solo entra una vez, aunque la pre-orden anterior este cancelada. Solo las pre-ordenes que lo traen reciben los avisos de estatus (`14.5`). |
 | `notes` | string | No | Maximo 400 caracteres. |
 | `status` | string | No | `Creada` (default) la manda al tablero de asignacion del CEDIS. `Borrador` la guarda sin mandarla. |
-| `items[].materialNumber` | string | Si | Codigo del producto. Debe existir en el catalogo de la sucursal. No repetir productos. |
+| `items[].materialNumber` | string | Si | Codigo del producto. Debe existir en el catalogo de la sucursal. El mismo producto puede venir en varios renglones si cada uno sale de un almacen distinto (`warehouseCode`); repetido en el mismo almacen se rechaza (un renglon sin `warehouseCode` cuenta como `cedisCode`). |
 | `items[].qty` | decimal | Si | Piezas. Mayor a 0. |
+| `items[].warehouseCode` | string | No | Almacen del que sale este SKU (`starnet_warehouses.code`). Si no viene, `cedisCode`. Cada renglon va a Kingdee con su propio `FStockId` y la organizacion de ese almacen, y cada almacen con renglones ve la orden en su tablero. |
+| `orderDate` | date | No | Fecha del pedido en el sistema de origen. La vigencia de los cupones se revisa contra ella; si no viene, contra el dia en que llega. |
+| `couponDiscount` | decimal | Condicional | Descuento total por cupones. Obligatorio si se envian `coupons`; debe ser la suma de `coupons[].faceValue`. |
+| `coupons` | array | No | Cupones del pedido. Mismos campos y reglas que las pre-ordenes de la Tienda Online (seccion 6): maximo 2 (uno general y uno de productos designados), vigencia, compra minima, y un folio no puede estar en otra pre-orden activa. |
+| `shippingAddress` | object | No | Direccion de entrega del cliente. Mismos campos que las pre-ordenes de la Tienda Online (`recipient` obligatorio, `phone`, `postalCode`, `street`, `neighborhood`, `city`, `state`, `references`, `businessName`, `taxId`). |
 
-El **precio no se manda**. La API lo calcula con la regla del ERP (`fn_PreorderPrecioCliente`): lista de precios del cliente, promocion vigente y precio de caja segun la cantidad.
+El **precio no se manda**. La API lo calcula con la regla del ERP (`fn_PreorderPrecioCliente`): lista de precios del cliente, promocion vigente y precio de caja segun la cantidad. Si un producto viene en varios almacenes, el precio se calcula con la **cantidad total** del producto en la orden: todos sus renglones quedan con el mismo precio que tendria en un solo renglon.
 
-La orden se crea y se marca como surtida por el CEDIS en una sola transaccion. La respuesta es `201` con el mismo cuerpo que `14.4`.
+**Una sola pre-orden por pedido**: si el pedido sale de varios almacenes, se manda una pre-orden con `warehouseCode` por renglon, no una pre-orden por almacen. Ejemplo real: el SKU `002261` con 563 piezas de `80105`, 102 de `101301` y 818 de `80103` son tres renglones de la misma pre-orden.
+
+El cliente paga el total de los items menos `couponDiscount` (`amountToPay` en la respuesta).
+
+:::caution Cupones en Kingdee pendientes
+La orden nace en Bamboo, asi que el POS no puede aplicar el cupon: Bamboo lo tiene que generar, publicar y recuperar en Kingdee. Todavia se esta definiendo como se refleja el cupon en el `CMK_LS_OrderBill`. Mientras tanto, una pre-orden con cupones activos **no se envia a Kingdee** al validarla (para que el POS no cobre el precio completo); los cupones quedan con `status: PENDIENTE`.
+:::
+
+La orden, sus almacenes, cupones y direccion se guardan en una sola transaccion. La respuesta es `201` con el mismo cuerpo que `14.4`.
 
 Errores posibles, con `400` y `{ "message": "..." }`:
 
@@ -2479,6 +2511,11 @@ Errores posibles, con `400` y `{ "message": "..." }`:
 { "message": "terminalCode '3000' no es una terminal activa de Sucursal Ramon Corona." }
 { "message": "Materiales que no existen en el catálogo de Sucursal Ramon Corona: ABC-1." }
 { "message": "Materiales sin precio para este cliente: 000092." }
+{ "message": "Almacenes que no existen en el catálogo: 99999." }
+{ "message": "Materiales repetidos: 002261 en el almacén 80105. Suma la cantidad en un solo renglón por almacén." }
+{ "message": "El pedido 'TO-2026-000123' ya se recibió en la pre-orden 1I-2026-000021." }
+{ "message": "couponDiscount (50.00) no cuadra con la suma de coupons.faceValue (100.00)." }
+{ "message": "El cupón 'vchr2026111000000001' ya está en otra pre-orden que no se ha cancelado." }
 ```
 
 ### 14.3 Listar pre-ordenes
@@ -2493,9 +2530,10 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes?fu
 | `fulfillmentType` | string | No | `TIENDA` (se surte en la sucursal) o `CEDIS`. |
 | `warehouseCode` | string | No | Almacen que surte. |
 | `branchCode` | string | No | Sucursal que vende (`departments.code`). |
+| `orderNo` | string | No | Numero de pedido de la Tienda Online con el que se creo. |
 | `page` / `pageSize` | int | No | Paginado. `pageSize` hasta 500, default 50. |
 
-Lista todas las pre-ordenes de Compra Anticipada, incluidas las capturadas en ERP-MX. Cada renglon regresa `orderId`, `folio`, `status`, `fulfillmentType`, la sucursal, el almacen, `customerName`, `sellerName`, `totalAmount`, `items` (numero de renglones), `k3Status`, `k3OrderNumber` y `createdAt`, dentro del envoltorio de paginacion (`page`, `pageSize`, `totalRecords`, `totalPages`, `preordenes`).
+Lista todas las pre-ordenes de Compra Anticipada, incluidas las capturadas en ERP-MX. Cada renglon regresa `orderId`, `folio`, `orderNo`, `status`, `fulfillmentType`, la sucursal, el almacen, `customerName`, `sellerName`, `totalAmount`, `items` (numero de renglones), `k3Status`, `k3OrderNumber` y `createdAt`, dentro del envoltorio de paginacion (`page`, `pageSize`, `totalRecords`, `totalPages`, `preordenes`).
 
 ### 14.4 Detalle de una pre-orden
 
@@ -2507,6 +2545,7 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{o
 {
   "orderId": 69,
   "folio": "1I-2026-000021",
+  "orderNo": "TO-2026-000123",
   "status": "Creada",
   "fulfillmentType": "CEDIS",
   "branchId": "1148518",
@@ -2541,6 +2580,7 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{o
 
 | Campo | Descripcion |
 | --- | --- |
+| `orderNo` | Numero de pedido de la Tienda Online; `null` si no vino. |
 | `status` | Estatus del flujo del ERP: `Creada` → `Asignada` → `Surtida` (o `Agotado` si falto stock) → `Validada`. `Cancelada` en cualquier punto antes de validar. |
 | `warehouse*` | Almacen que surte: el CEDIS cuando `fulfillmentType = CEDIS`. |
 | `k3Status` | Resultado del envio a Kingdee al validar: `created`, `audited` o `error`. |
@@ -2548,5 +2588,59 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{o
 | `createdAt` / `updatedAt` | En UTC, como los guarda el ERP. |
 | `items[].qtyPicked` | Cantidad surtida por el almacen. |
 | `items[].valStatus` | Validacion del renglon: `ok`, `diff` (con la cantidad real en `valQty`) o `null`. |
+| `items[].warehouseId` / `warehouseCode` / `warehouseName` | Almacen del que sale el renglon (el de la orden si el renglon no trae uno). |
+| `couponDiscount` / `amountToPay` | Descuento por cupones y lo que paga el cliente (`totalAmount - couponDiscount`). |
+| `coupons[]` | Los cupones que se enviaron, mas `kingdeeCode` (folio de Kingdee, `null` mientras no se crea), `status` (`PENDIENTE`, `CREADO`, `PUBLICADO`, `CONSUMIDO`, `DEVUELTO` o `CANCELADO`) y `cancelled` (`true` si se cancelo el cupon o la pre-orden; el folio se puede volver a usar). |
+| `shippingAddress` | Direccion de entrega, con los mismos campos que se enviaron; `null` si no trae. |
 
 Un `orderId` que no existe regresa `404`.
+
+### 14.5 Avisos de estatus a la Tienda Online
+
+Para las pre-ordenes que se crearon con `orderNo`, el ERP-MX avisa cada cambio de estatus a la Tienda Online con un callback (guia de callbacks v1.1):
+
+```http
+POST {url de la Tienda Online}/api/bamboo/preorder-status
+X-API-Key: {llave}
+Content-Type: application/json
+```
+
+Se manda **un evento por almacen**: si la orden tiene renglones de tres almacenes, cada cambio genera tres eventos, uno con cada `warehouseCode`.
+
+```json
+{
+  "orderNo": "TO-2026-000123",
+  "customerCode": "C000123",
+  "status": "SENT_TO_CEDIS",
+  "bambooUpdatedAt": "2026-11-11T18:30:00Z",
+  "bambooFolio": "1I-2026-000021",
+  "bambooOrderId": "69",
+  "cedisCode": "80105",
+  "cedisName": "Cedis Vallejo",
+  "warehouseCode": "80103"
+}
+```
+
+| Momento en el ERP | `status` |
+| --- | --- |
+| El CEDIS asigna la orden a un surtidor (`Asignada`) | `SENT_TO_CEDIS` |
+| Primera pieza surtida de un almacen, o la orden queda `Surtida` | `IN_PICKING` |
+| La orden se valida (`Validada`) | `IN_PACKING_OR_REVIEW` |
+| La orden se cancela (`Cancelada`) | `CANCELLED`, con `cancelledAt` |
+
+| Campo | Descripcion |
+| --- | --- |
+| `orderNo` | El `orderNo` con el que se creo la pre-orden. |
+| `customerCode` | Cliente de la pre-orden; vacio si no trae. |
+| `bambooUpdatedAt` / `cancelledAt` | Fecha y hora del cambio en UTC (ISO 8601). |
+| `bambooFolio` / `bambooOrderId` | Folio y `orderId` de la pre-orden en Bamboo. |
+| `cedisCode` / `cedisName` | CEDIS de la orden (`cedisCode` con el que se creo). |
+| `warehouseCode` | Almacen al que se refiere el evento (el de sus renglones). |
+
+Reglas:
+
+- Cada estatus se avisa **una sola vez por almacen**; volver a pasar por el mismo estatus no repite el aviso.
+- `Agotado` y `Modificada` no generan aviso: para la tienda la orden sigue en `IN_PICKING`.
+- `CONVERTED_TO_ORDER` no se manda: la respuesta `201` del `POST` (`14.2`) es la confirmacion de que el pedido se convirtio en pre-orden.
+- `DELIVERED` todavia no se manda: la entrega ocurre en el POS al cobrar la orden de Kingdee y el ERP aun no la recibe.
+- Si el aviso falla, la operacion del ERP no se detiene; el aviso queda registrado como pendiente en Bamboo.

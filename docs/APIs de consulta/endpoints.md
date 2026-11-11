@@ -2432,6 +2432,8 @@ This API creates the ones that a **branch sells but a CEDIS fulfills**, because 
 
 - They show up on the **CEDIS** assignment, picking and validation boards, with a *Surte: Cedis X* badge.
 - Picking shows the stock and locations of the CEDIS warehouse.
+- Each line can ship from its own warehouse (`items[].warehouseCode`), even the same product from several warehouses. The picker sees which warehouse each line ships from.
+- If the pre-order has an `orderNo`, the Online Store gets a callback on every status change (`14.5`).
 - In Kingdee, the sales organization (`FSalOrgId`), store (`FBranchId`) and POS (`FPOS`) belong to the selling branch. The inventory organization (`FStockOrgId`, org `801`) and the warehouse (`FStockId`) belong to the CEDIS.
 
 ```text
@@ -2469,11 +2471,27 @@ POST http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes
   "sellerId": 426,
   "terminalCode": "100803",
   "customerCode": "C000123",
+  "orderNo": "TO-2026-000123",
   "notes": "Picks up on Thursday",
   "status": "Creada",
   "items": [
-    { "materialNumber": "000095", "qty": 3 }
-  ]
+    { "materialNumber": "000095", "qty": 3 },
+    { "materialNumber": "000099", "qty": 1, "warehouseCode": "80107" },
+    { "materialNumber": "000095", "qty": 5, "warehouseCode": "80103" }
+  ],
+  "couponDiscount": 50,
+  "coupons": [
+    { "code": "vchr2026111000000001", "faceValue": 50, "minTotal": 100, "validFrom": "2026-11-01", "validUntil": "2026-11-30", "scopeCount": 0 }
+  ],
+  "shippingAddress": {
+    "recipient": "Juan Perez",
+    "phone": "5512345678",
+    "postalCode": "06000",
+    "street": "Peru 10",
+    "neighborhood": "Centro",
+    "city": "CDMX",
+    "state": "CDMX"
+  }
 }
 ```
 
@@ -2485,14 +2503,28 @@ POST http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes
 | `createdBy` | int | No | User who captures it. Defaults to `sellerId`. |
 | `terminalCode` | string | Yes | Active POS terminal of the branch (`PosTerminals.PosCode`). Kingdee uses it as `FPOS` so the POS can pull the order. |
 | `customerCode` | string | No | Customer (`customers.customer_code`). It sets the price list. |
+| `orderNo` | string | No | Order number in the Online Store (max 50). The same `orderNo` is accepted only once, even if the previous pre-order was cancelled. Only pre-orders that have it receive the status callbacks (`14.5`). |
 | `notes` | string | No | Max 400 chars. |
 | `status` | string | No | `Creada` (default) sends it to the CEDIS assignment board. `Borrador` saves it as a draft. |
-| `items[].materialNumber` | string | Yes | Product code. It must exist in the branch catalog. Don't repeat a product. |
+| `items[].materialNumber` | string | Yes | Product code. It must exist in the branch catalog. The same product can come in several lines if each one ships from a different warehouse (`warehouseCode`); repeated in the same warehouse is rejected (a line without `warehouseCode` counts as `cedisCode`). |
 | `items[].qty` | decimal | Yes | Pieces. Greater than 0. |
+| `items[].warehouseCode` | string | No | Warehouse this SKU ships from (`starnet_warehouses.code`). Defaults to `cedisCode`. Each line goes to Kingdee with its own `FStockId` and the organization of that warehouse, and every warehouse with lines sees the order on its board. |
+| `orderDate` | date | No | Order date in the source system. Coupon validity is checked against it; defaults to the day it arrives. |
+| `couponDiscount` | decimal | Conditional | Total coupon discount. Required with `coupons`; it must be the sum of `coupons[].faceValue`. |
+| `coupons` | array | No | Coupons of the order. Same fields and rules as the Online Store pre-orders (section 6): max 2 (one general and one for designated products), validity, minimum purchase, and a code can't be in another active pre-order. |
+| `shippingAddress` | object | No | Customer delivery address. Same fields as the Online Store pre-orders (`recipient` required, `phone`, `postalCode`, `street`, `neighborhood`, `city`, `state`, `references`, `businessName`, `taxId`). |
 
-The **price is not sent**. The API calculates it with the ERP rule (`fn_PreorderPrecioCliente`): the customer's price list, the current promotion and the box price depending on the quantity.
+The **price is not sent**. The API calculates it with the ERP rule (`fn_PreorderPrecioCliente`): the customer's price list, the current promotion and the box price depending on the quantity. If a product comes from several warehouses, the price is calculated with the product's **total quantity** in the order: all its lines get the same price they would have in a single line.
 
-The order is created and marked as fulfilled by the CEDIS in a single transaction. The response is `201` with the same body as `14.4`.
+**One pre-order per order**: if the order ships from several warehouses, send one pre-order with `warehouseCode` per line, not one pre-order per warehouse. Real example: SKU `002261` with 563 pieces from `80105`, 102 from `101301` and 818 from `80103` are three lines of the same pre-order.
+
+The customer pays the items total minus `couponDiscount` (`amountToPay` in the response).
+
+:::caution Coupons in Kingdee are pending
+The order is created in Bamboo, so the POS can't apply the coupon: Bamboo has to create, publish and redeem it in Kingdee. How the coupon is reflected in the `CMK_LS_OrderBill` is still being defined. Until then, a pre-order with active coupons is **not sent to Kingdee** when it is validated (so the POS doesn't charge the full price); the coupons are stored with `status: PENDIENTE`.
+:::
+
+The order, its warehouses, coupons and address are saved in a single transaction. The response is `201` with the same body as `14.4`.
 
 Possible errors return `400` with `{ "message": "..." }` (in Spanish):
 
@@ -2502,6 +2534,11 @@ Possible errors return `400` with `{ "message": "..." }` (in Spanish):
 { "message": "terminalCode '3000' no es una terminal activa de Sucursal Ramon Corona." }
 { "message": "Materiales que no existen en el catálogo de Sucursal Ramon Corona: ABC-1." }
 { "message": "Materiales sin precio para este cliente: 000092." }
+{ "message": "Almacenes que no existen en el catálogo: 99999." }
+{ "message": "Materiales repetidos: 002261 en el almacén 80105. Suma la cantidad en un solo renglón por almacén." }
+{ "message": "El pedido 'TO-2026-000123' ya se recibió en la pre-orden 1I-2026-000021." }
+{ "message": "couponDiscount (50.00) no cuadra con la suma de coupons.faceValue (100.00)." }
+{ "message": "El cupón 'vchr2026111000000001' ya está en otra pre-orden que no se ha cancelado." }
 ```
 
 ### 14.3 List pre-orders
@@ -2516,9 +2553,10 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes?fu
 | `fulfillmentType` | string | No | `TIENDA` (fulfilled at the branch) or `CEDIS`. |
 | `warehouseCode` | string | No | Warehouse that fulfills the order. |
 | `branchCode` | string | No | Selling branch (`departments.code`). |
+| `orderNo` | string | No | Online Store order number the pre-order was created with. |
 | `page` / `pageSize` | int | No | Paging. `pageSize` up to 500, default 50. |
 
-Lists every advance-purchase pre-order, the ones created in ERP-MX included. Each row returns `orderId`, `folio`, `status`, `fulfillmentType`, the branch, the warehouse, `customerName`, `sellerName`, `totalAmount`, `items` (number of lines), `k3Status`, `k3OrderNumber` and `createdAt`, inside the paging envelope (`page`, `pageSize`, `totalRecords`, `totalPages`, `preordenes`).
+Lists every advance-purchase pre-order, the ones created in ERP-MX included. Each row returns `orderId`, `folio`, `orderNo`, `status`, `fulfillmentType`, the branch, the warehouse, `customerName`, `sellerName`, `totalAmount`, `items` (number of lines), `k3Status`, `k3OrderNumber` and `createdAt`, inside the paging envelope (`page`, `pageSize`, `totalRecords`, `totalPages`, `preordenes`).
 
 ### 14.4 Get a pre-order
 
@@ -2530,6 +2568,7 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{o
 {
   "orderId": 69,
   "folio": "1I-2026-000021",
+  "orderNo": "TO-2026-000123",
   "status": "Creada",
   "fulfillmentType": "CEDIS",
   "branchId": "1148518",
@@ -2564,6 +2603,7 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{o
 
 | Field | Description |
 | --- | --- |
+| `orderNo` | Online Store order number; `null` if it wasn't sent. |
 | `status` | Local status of the ERP flow: `Creada` → `Asignada` → `Surtida` (or `Agotado` if stock ran out) → `Validada`. `Cancelada` at any point before validation. |
 | `warehouse*` | Warehouse that fulfills the order: the CEDIS for `fulfillmentType = CEDIS`. |
 | `k3Status` | Result of sending it to Kingdee when it is validated: `created`, `audited` or `error`. |
@@ -2571,5 +2611,59 @@ GET http://pfconexionlinkbits.ddns.net:50780/api/compra-anticipada/preordenes/{o
 | `createdAt` / `updatedAt` | In UTC, as the ERP stores them. |
 | `items[].qtyPicked` | Quantity picked by the warehouse. |
 | `items[].valStatus` | Validation of the line: `ok`, `diff` (with the real quantity in `valQty`) or `null`. |
+| `items[].warehouseId` / `warehouseCode` / `warehouseName` | Warehouse the line ships from (the order's warehouse if the line has none). |
+| `couponDiscount` / `amountToPay` | Coupon discount and what the customer pays (`totalAmount - couponDiscount`). |
+| `coupons[]` | The coupons that were sent, plus `kingdeeCode` (Kingdee folio, `null` until it's created), `status` (`PENDIENTE`, `CREADO`, `PUBLICADO`, `CONSUMIDO`, `DEVUELTO` or `CANCELADO`) and `cancelled` (`true` if the coupon or the pre-order was cancelled; the code can be used again). |
+| `shippingAddress` | Delivery address, with the same fields that were sent; `null` if none. |
 
 An `orderId` that does not exist returns `404`.
+
+### 14.5 Status callbacks to the Online Store
+
+For the pre-orders created with `orderNo`, ERP-MX sends every status change to the Online Store as a callback (callbacks guide v1.1):
+
+```http
+POST {Online Store url}/api/bamboo/preorder-status
+X-API-Key: {key}
+Content-Type: application/json
+```
+
+There is **one event per warehouse**: if the order has lines from three warehouses, each change sends three events, one with each `warehouseCode`.
+
+```json
+{
+  "orderNo": "TO-2026-000123",
+  "customerCode": "C000123",
+  "status": "SENT_TO_CEDIS",
+  "bambooUpdatedAt": "2026-11-11T18:30:00Z",
+  "bambooFolio": "1I-2026-000021",
+  "bambooOrderId": "69",
+  "cedisCode": "80105",
+  "cedisName": "Cedis Vallejo",
+  "warehouseCode": "80103"
+}
+```
+
+| When it happens in the ERP | `status` |
+| --- | --- |
+| The CEDIS assigns the order to a picker (`Asignada`) | `SENT_TO_CEDIS` |
+| First piece picked in a warehouse, or the order becomes `Surtida` | `IN_PICKING` |
+| The order is validated (`Validada`) | `IN_PACKING_OR_REVIEW` |
+| The order is cancelled (`Cancelada`) | `CANCELLED`, with `cancelledAt` |
+
+| Field | Description |
+| --- | --- |
+| `orderNo` | The `orderNo` the pre-order was created with. |
+| `customerCode` | Customer of the pre-order; empty if none. |
+| `bambooUpdatedAt` / `cancelledAt` | Date and time of the change in UTC (ISO 8601). |
+| `bambooFolio` / `bambooOrderId` | Folio and `orderId` of the pre-order in Bamboo. |
+| `cedisCode` / `cedisName` | CEDIS of the order (the `cedisCode` it was created with). |
+| `warehouseCode` | Warehouse the event refers to (the one of its lines). |
+
+Rules:
+
+- Each status is sent **only once per warehouse**; going through the same status again doesn't repeat the callback.
+- `Agotado` and `Modificada` don't send a callback: for the store the order stays `IN_PICKING`.
+- `CONVERTED_TO_ORDER` is not sent: the `201` response of the `POST` (`14.2`) is the confirmation that the order became a pre-order.
+- `DELIVERED` is not sent yet: delivery happens at the POS when it charges the Kingdee order, and the ERP doesn't receive it yet.
+- If a callback fails, the ERP operation is not stopped; the callback is recorded as pending in Bamboo.

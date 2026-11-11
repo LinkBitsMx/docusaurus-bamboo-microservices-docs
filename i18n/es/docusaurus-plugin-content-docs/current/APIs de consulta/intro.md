@@ -27,7 +27,7 @@ Estas APIs permiten consultar informacion de BambooERP sin entrar al sistema int
 | Clientes | Datos basicos del cliente (contacto, empresa, categoria, sucursal y datos fiscales) junto con sus direcciones registradas |
 | Envios | Paqueterias, peso y volumen de productos y el calculo del envio con las mismas reglas con las que cobra BambooERP |
 | Vendedores | Vendedores y los clientes que tienen asignados |
-| Compra Anticipada | Crear pre-ordenes que vende una sucursal y surte un CEDIS (el cliente recoge en el CEDIS), y seguir su surtido, validacion y estatus en Kingdee |
+| Compra Anticipada | Crear pre-ordenes que vende una sucursal y surte un CEDIS (el cliente recoge en el CEDIS), con almacen por renglon y numero de pedido de la Tienda Online; seguir su surtido, validacion y estatus en Kingdee, y recibir avisos de estatus en la Tienda Online |
 
 ## Base URL
 
